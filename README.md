@@ -4,6 +4,25 @@ This is development source, not a working driver release. It now contains a Wind
 
 Target: Sony WH-1000XM5, ASUS ROG Zephyrus G16 (2025), Intel Wireless Bluetooth, Windows 11 Home 25H2 build 26200.9168. The screenshots establish these names but do not identify the exact Bluetooth service hardware ID or establish compatibility with this driver.
 
+## Production roadmap
+
+Full multi-phase plan: [`PRODUCTION_PLAN.md`](PRODUCTION_PLAN.md).  
+**Current phase:** [`PHASE0.md`](PHASE0.md) — build, bind, test-sign, and IOCTL smoke (no audio claim yet).
+
+Phase 0 on the G16 (elevated where noted):
+
+```powershell
+.\tools\build.ps1 -IncludeDriver
+.\tools\hardware-report.ps1 | Out-File hw.json -Encoding utf8
+.\tools\resolve-binding.ps1 -ReportPath hw.json
+.\tools\generate-inf.ps1 -HardwareId '<RecommendedHardwareId>'
+.\tools\package-test.ps1
+# elevated:
+.\tools\sign-test.ps1 -PackageDir package\test
+.\tools\install-test.ps1 -PackageDir package\test
+.\tools\smoke-info.ps1 -Address AA:BB:CC:DD:EE:FF
+```
+
 ## Implemented components
 
 | Component | Implementation | Verification |

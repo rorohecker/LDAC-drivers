@@ -20,9 +20,10 @@ Quality is fixed to the requested HQ/SQ/MQ mode. There is no adaptive bitrate co
 
 ## Next implementation sequence
 
-1. Compile user mode and kernel mode on Windows; fix SDK/WDK diagnostics.
-2. Resolve the exact XM5 service binding from the supplied read-only report.
-3. Validate driver request lifecycle and cancellation with the WDK tools before loading a test build for audio trials.
-4. Trace signaling and play a short PCM file, then add the peer-command responder and continuous signaling handling.
-5. Validate WASAPI capture and implement a dedicated audio endpoint with bounded buffering.
-6. Add reconnection, asynchronous transport, adaptive quality, packaging, signing, and sustained hardware tests.
+Tracked in `PRODUCTION_PLAN.md`. Phase 0 tooling (INF generate, package/sign/install/uninstall, smoke probe, portable CI) is in-tree; Windows compile and hardware binding remain blocked on the G16.
+
+1. **Phase 0 (active):** Compile user/kernel mode on Windows; resolve XM5 Audio Sink HWID; test-sign; install; `smoke-info.ps1` PASS. See `PHASE0.md`.
+2. **Phase 1:** Driver Verifier + live AVDTP + short PCM playback with packet traces.
+3. **Phase 2:** Peer-command responder, continuous signaling, async BRBs, reconnect.
+4. **Phase 3:** Dedicated Windows audio endpoint, pacing/soak, adaptive quality.
+5. **Phase 4–5:** Production signing/compliance, then full CI/release system.

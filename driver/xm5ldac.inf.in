@@ -1,40 +1,64 @@
-; Development template only. Replace __HEADPHONE_SERVICE_HARDWARE_ID__ using
-; the actual WH-1000XM5 Audio Sink service hardware ID after binding review.
-; Do not substitute the Intel Bluetooth radio's hardware ID.
+; Development INF template for the experimental XM5 LDAC Bluetooth *profile* transport.
+;
+; Binding policy:
+;   - Replace __HEADPHONE_SERVICE_HARDWARE_ID__ with the WH-1000XM5 Audio Sink
+;     service hardware ID from tools/resolve-binding.ps1 (after hardware-report.ps1).
+;   - Do NOT use the Intel Wireless Bluetooth radio hardware ID.
+;   - This package is intended as the function driver for the headphone sink service
+;     device only. It will conflict with the inbox A2DP profile on that service.
+;
+; Generate a concrete INF with:
+;   .\tools\generate-inf.ps1 -HardwareId 'BTHENUM\{...}'
+;
 [Version]
 Signature="$WINDOWS NT$"
 Class=Bluetooth
 ClassGuid={e0cbf06c-cd8b-4647-bb8a-263b43f0f974}
 Provider=%Provider%
-DriverVer=09/10/2026,0.1.0.0
+DriverVer=09/14/2026,0.1.0.0
 CatalogFile=xm5ldac.cat
 PnpLockdown=1
+
 [Manufacturer]
 %Provider%=Models,NTamd64.10.0
+
 [Models.NTamd64.10.0]
 %Description%=Install,__HEADPHONE_SERVICE_HARDWARE_ID__
+
 [Install.NT]
 CopyFiles=DriverFiles
+
 [DriverFiles]
 xm5ldac.sys
+
 [DestinationDirs]
 DriverFiles=13
+
 [SourceDisksNames]
 1=%Disk%,,,
+
 [SourceDisksFiles]
 xm5ldac.sys=1
+
 [Install.NT.Services]
 AddService=xm5ldac,0x00000002,Service
+
 [Service]
 DisplayName=%Description%
 ServiceType=1
 StartType=3
 ErrorControl=1
 ServiceBinary=%13%\xm5ldac.sys
+
 [Install.NT.Wdf]
 KmdfService=xm5ldac,WdfSection
+
 [WdfSection]
 KmdfLibraryVersion=1.33
+
+; Device interface GUID_DEVINTERFACE_XM5_LDAC is created at runtime in AddDevice
+; via WdfDeviceCreateDeviceInterface. Keep public.h and client in sync.
+
 [Strings]
 Provider="XM5 LDAC development project"
 Description="Experimental XM5 LDAC Bluetooth transport"

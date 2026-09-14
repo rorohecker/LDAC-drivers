@@ -1,6 +1,12 @@
 build/
 driver/out/
 driver/obj/
+driver/xm5ldac.inf
+package/
 *.user
 *.ldacdiag
 *.s16le
+*.sys
+*.cat
+*.cer
+*.pfx
