@@ -2,14 +2,22 @@
 #include <algorithm>
 namespace xm5 {
 Encoder::Encoder(uint16_t mtu,int quality,uint16_t sequence,uint32_t timestamp,uint32_t ssrc):
-    mtu_(mtu),sequence_(sequence),timestamp_(timestamp),ssrc_(ssrc){
+    mtu_(mtu),sequence_(sequence),timestamp_(timestamp),ssrc_(ssrc),quality_(quality){
     if(mtu<679 || mtu>4096)throw Error("Unsupported media MTU");
+    if(quality!=LDACBT_EQMID_HQ && quality!=LDACBT_EQMID_SQ && quality!=LDACBT_EQMID_MQ)
+        throw Error("Unsupported LDAC quality");
     handle_=ldacBT_get_handle();if(!handle_)throw Error("LDAC allocation failed");
     if(ldacBT_init_handle_encode(handle_,mtu,quality,LDACBT_CHANNEL_MODE_STEREO,LDACBT_SMPL_FMT_S16,48000)){
         ldacBT_free_handle(handle_);handle_=nullptr;throw Error("LDAC initialization failed");
     }
 }
 Encoder::~Encoder(){if(handle_)ldacBT_free_handle(handle_);}
+bool Encoder::set_quality(int quality){
+    if(quality!=LDACBT_EQMID_HQ && quality!=LDACBT_EQMID_SQ && quality!=LDACBT_EQMID_MQ)return false;
+    if(quality==quality_)return true;
+    if(ldacBT_set_eqmid(handle_,quality))return false;
+    quality_=quality;return true;
+}
 void Encoder::block(void* pcm,const std::function<void(const Bytes&,unsigned)>& emit){
     unsigned char data[4096];int used=0,size=0,frames=0;
     if(ldacBT_encode(handle_,pcm,&used,data,&size,&frames))throw Error("LDAC encoding error "+std::to_string(ldacBT_get_error_code(handle_)));

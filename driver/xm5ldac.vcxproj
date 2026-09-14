@@ -22,6 +22,6 @@
   <ClCompile><TreatWarningAsError>true</TreatWarningAsError></ClCompile>
  </ItemDefinitionGroup>
  <ItemGroup><ClCompile Include="driver.c" /></ItemGroup>
- <ItemGroup><ClInclude Include="public.h" /></ItemGroup>
+ <ItemGroup><ClInclude Include="public.h" /><ClInclude Include="xm5_trace.h" /></ItemGroup>
  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

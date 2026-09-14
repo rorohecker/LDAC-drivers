@@ -7,6 +7,7 @@
 #include <bthioctl.h>
 #include <bthddi.h>
 #include "public.h"
+#include "xm5_trace.h"
 
 typedef struct { L2CAP_CHANNEL_HANDLE handle; USHORT out_mtu,in_mtu; volatile LONG disconnected; } CHANNEL;
 typedef struct {
@@ -23,11 +24,15 @@ EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL Control;
 EVT_WDF_FILE_CLEANUP FileCleanup;
 
 static NTSTATUS Submit(DEVICE_CONTEXT *d,PBRB brb,ULONG size,ULONG timeout){
+    /* Phase 2 note: synchronous BRBs are retained for the alpha path. An async
+     * pending-BRB list with EvtRequestCancel + rundown is required before Verifier
+     * sign-off (see docs/async-brb.md). */
     WDF_MEMORY_DESCRIPTOR memory;
     WDF_REQUEST_SEND_OPTIONS options;
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&memory,brb,size);
     WDF_REQUEST_SEND_OPTIONS_INIT(&options,WDF_REQUEST_SEND_OPTION_TIMEOUT);
     WDF_REQUEST_SEND_OPTIONS_SET_TIMEOUT(&options,WDF_REL_TIMEOUT_IN_MS(timeout));
+    XM5_TRACE_INFO("Submit BRB size=%lu timeout=%lu", size, timeout);
     return WdfIoTargetSendInternalIoctlOthersSynchronously(WdfDeviceGetIoTarget(d->device),
         NULL,IOCTL_INTERNAL_BTH_SUBMIT_BRB,&memory,NULL,NULL,&options,NULL);
 }

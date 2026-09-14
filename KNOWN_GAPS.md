@@ -8,22 +8,19 @@ The transport currently uses serialized synchronous BRB requests with timeouts. 
 
 ## Protocol completeness
 
-The initial AVDTP state machine initiates the session from the PC. It validates incoming response fragments and transaction labels. It does not provide a complete local source endpoint responder: peer-initiated commands during setup terminate the attempt. Signaling is not continuously monitored while media streams. A complete responder and independent signaling pump are needed for peer Suspend/Abort/Close and recovery. Late responses, collision handling, retry policy, signaling interleaving, and malformed-peer behavior need broader conformance tests.
+Peer Suspend/Abort/Close/Discover/GetCapabilities (and related) are handled by `Session::handle_peer` and `Session::pump`. Signaling is polled during media emit on the Windows client. A full async BRB transport, RF reconnect soak, and Bluetooth qualification are still outstanding — see `PHASE2.md` and `docs/async-brb.md`.
 
-The selected configuration is only 48 kHz stereo LDAC with the basic media transport and codec categories. Content protection, delay reporting, reporting/recovery services, codec renegotiation, and other sample rates are not implemented. No claim of Bluetooth qualification or full A2DP/AVDTP conformance is made. The LDAC codec identifier and media framing still need confirmation by a real headset session or packet trace.
+The selected configuration remains 48 kHz stereo LDAC with the basic media transport and codec categories. Content protection, delay reporting, reporting/recovery services, codec renegotiation, and other sample rates are not implemented. No claim of Bluetooth qualification or full A2DP/AVDTP conformance is made. Live headset confirmation of LDAC framing remains a Phase 1 hardware gate.
 
 ## Audio experience
 
-There is no dedicated Windows playback device. File streaming and WASAPI loopback are the initial integration paths. Loopback uses the startup default endpoint and may also play locally. No endpoint hot-swap, automatic muting, mixer UI, microphone routing, AVRCP controls, multipoint coordination, or volume synchronization is implemented.
-
-Quality is fixed to the requested HQ/SQ/MQ mode. There is no adaptive bitrate controller. A bounded 200 ms capture queue prevents unlimited latency accumulation; queue overflow, later capture discontinuity, and sends taking over 100 ms terminate the attempt. The pacer is based on `steady_clock` and has not been measured under Windows scheduling load. Listening quality, RF congestion, sustained latency, underruns, and long-session behavior remain untested.
+File, WAV, and WASAPI loopback paths exist. Adaptive EQMID and a bounded capture queue are implemented. There is still no dedicated Windows playback device (`docs/wasapi-endpoint.md`). Loopback uses the startup default endpoint and may also play locally. No endpoint hot-swap, automatic muting, mixer UI, microphone routing, AVRCP controls, multipoint coordination, or volume synchronization is implemented.
 
 ## Next implementation sequence
 
-Tracked in `PRODUCTION_PLAN.md`. Phase 0 tooling (INF generate, package/sign/install/uninstall, smoke probe, portable CI) is in-tree; Windows compile and hardware binding remain blocked on the G16.
+Tracked in `PRODUCTION_PLAN.md` and `PHASE0.md`–`PHASE5.md`.
 
-1. **Phase 0 (active):** Compile user/kernel mode on Windows; resolve XM5 Audio Sink HWID; test-sign; install; `smoke-info.ps1` PASS. See `PHASE0.md`.
-2. **Phase 1:** Driver Verifier + live AVDTP + short PCM playback with packet traces.
-3. **Phase 2:** Peer-command responder, continuous signaling, async BRBs, reconnect.
-4. **Phase 3:** Dedicated Windows audio endpoint, pacing/soak, adaptive quality.
-5. **Phase 4–5:** Production signing/compliance, then full CI/release system.
+1. **Hardware:** Complete Phase 0 bind/sign smoke, then Phase 1 audible PCM + Verifier on the G16.
+2. **Kernel:** Implement async BRBs per `docs/async-brb.md`; Verifier cancel/remove/power.
+3. **Audio:** Dedicated WASAPI/virtual endpoint; mute-local routing; listening soak.
+4. **Release:** Production signing, measured SUPPORT_MATRIX, tagged RELEASE train.

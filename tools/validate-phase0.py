@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Linux-side guards for Phase 0 packaging artifacts (no Windows required)."""
+"""Linux-side guards for Phase 0–5 packaging and roadmap artifacts."""
 from __future__ import annotations
 
 import pathlib
@@ -11,7 +11,23 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 REQUIRED = [
     "PRODUCTION_PLAN.md",
     "PHASE0.md",
+    "PHASE1.md",
+    "PHASE2.md",
+    "PHASE3.md",
+    "PHASE4.md",
+    "PHASE5.md",
+    "CHANGELOG.md",
+    "SUPPORT_MATRIX.md",
+    "RELEASE.md",
+    "docs/async-brb.md",
+    "docs/security-ioctl.md",
+    "docs/wasapi-endpoint.md",
     "driver/xm5ldac.inf.in",
+    "driver/xm5_trace.h",
+    "core/adaptive.hpp",
+    "core/audio_queue.hpp",
+    "core/reconnect.hpp",
+    "core/wav.hpp",
     "tools/build.ps1",
     "tools/hardware-report.ps1",
     "tools/resolve-binding.ps1",
@@ -21,6 +37,7 @@ REQUIRED = [
     "tools/install-test.ps1",
     "tools/uninstall-test.ps1",
     "tools/smoke-info.ps1",
+    "tools/gen_pcm.py",
     ".github/workflows/portable-ci.yml",
 ]
 
@@ -49,7 +66,6 @@ def main() -> None:
     if fake_id not in generated:
         fail("generated INF missing substituted hardware id")
 
-    # Simulate generate-inf radio refusal patterns used by the PowerShell script.
     radio_patterns = ("Intel", "8087", "MS_BTHPORT", "MS_BTHBRB", "Wireless Bluetooth")
     for bad in ("USB\\VID_8087&PID_0A3A", "BTH\\MS_BTHPORT\\0", "Intel(R) Wireless Bluetooth"):
         if not any(p.lower() in bad.lower() for p in radio_patterns):
@@ -60,13 +76,21 @@ def main() -> None:
         if needle not in build_ps1:
             fail(f"build.ps1 missing expected piece: {needle}")
 
-    # Ensure CTL_CODE documentation in smoke script matches public.h macro intent.
     public_h = (ROOT / "driver/public.h").read_text(encoding="utf-8")
     if "XM5_IOCTL_INFO" not in public_h:
         fail("public.h missing XM5_IOCTL_INFO")
     smoke = (ROOT / "tools/smoke-info.ps1").read_text(encoding="utf-8")
     if "0x00226000" not in smoke:
         fail("smoke-info.ps1 IOCTL constant must be 0x00226000")
+
+    avdtp = (ROOT / "core/avdtp.hpp").read_text(encoding="utf-8")
+    for needle in ("pump", "suspended", "accept_response"):
+        if needle not in avdtp:
+            fail(f"avdtp.hpp missing {needle}")
+
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    if "Unreleased" not in changelog:
+        fail("CHANGELOG.md missing Unreleased section")
 
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp) / "xm5ldac.inf"
@@ -75,7 +99,7 @@ def main() -> None:
         if not re.search(r"CatalogFile\s*=\s*xm5ldac\.cat", text):
             fail("generated INF missing CatalogFile")
 
-    print("PASS: Phase 0 artifact guards")
+    print("PASS: Phase 0–5 artifact guards")
     print(f"Checked {len(REQUIRED)} required files and INF substitution")
 
 

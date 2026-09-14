@@ -7,7 +7,10 @@ Target: Sony WH-1000XM5, ASUS ROG Zephyrus G16 (2025), Intel Wireless Bluetooth,
 ## Production roadmap
 
 Full multi-phase plan: [`PRODUCTION_PLAN.md`](PRODUCTION_PLAN.md).  
-**Current phase:** [`PHASE0.md`](PHASE0.md) — build, bind, test-sign, and IOCTL smoke (no audio claim yet).
+Phase checklists: [`PHASE0.md`](PHASE0.md) … [`PHASE5.md`](PHASE5.md).  
+**Scope:** experimental **XM5-only**, **48 kHz stereo LDAC**. No Bluetooth qualification or general A2DP conformance is claimed. See [`SUPPORT_MATRIX.md`](SUPPORT_MATRIX.md).
+
+**Hardware gate:** Phase 0–1 exit still requires the G16 lab. Software for Phases 2–5 (protocol responder, pump, reconnect, adaptive bitrate, packaging docs/CI) is implemented and Linux-tested.
 
 Phase 0 on the G16 (elevated where noted):
 
@@ -23,17 +26,24 @@ Phase 0 on the G16 (elevated where noted):
 .\tools\smoke-info.ps1 -Address AA:BB:CC:DD:EE:FF
 ```
 
+Phase 1 file smoke (after Phase 0):
+
+```powershell
+python tools\gen_pcm.py --seconds 2 --out short.s16le
+build\Debug\xm5_stream.exe --address AA:BB:CC:DD:EE:FF --file short.s16le sq --adaptive --reconnect
+```
+
 ## Implemented components
 
 | Component | Implementation | Verification |
 |---|---|---|
 | LDAC encoder | Sony encoder, 48 kHz / 16-bit / stereo, HQ/SQ/MQ, partial blocks and drain | Compiled and integration-tested on Linux |
-| AVDTP source | Discover, GetCapabilities, LDAC selection, SetConfiguration, Open, Start, Suspend, Close, Abort on partial setup | Fake-peer negotiation and failure tests |
-| Signaling parser | Single and fragmented responses, transaction matching, bounds checks | Unit tests and malformed-input corpus |
-| Media packets | RTP header, LDAC frame count, sequence/timestamp updates and MTU bounds | Real encoder matrix over three quality modes and three MTUs |
+| AVDTP source | Discover→Start plus peer Suspend/Close/Abort/Discover/GetCaps responder and `pump` | Fake-peer negotiation, peer-command, and failure tests |
+| Adaptive / reconnect | EQMID congestion backoff; Start retry supervisor | Unit tests; Windows flags `--adaptive` `--reconnect` |
+| WAV input | 48 kHz stereo PCM WAV demux | Unit test + `--wav` |
 | KMDF transport | Two L2CAP channels, packet send/receive, IOCTL validation, exclusive administrator access, disconnect notification and cleanup paths | Source reviewed against Microsoft interfaces; WDK compile and runtime checks pending |
-| Windows streaming client | PCM file input, packet pacing, bounded WASAPI capture queue, Ctrl+C shutdown | Source only; Windows compile and runtime checks pending |
-| Windows playback endpoint | Not implemented | The first live path uses file input or loopback from an existing device |
+| Windows streaming client | PCM/WAV file input, packet pacing, signaling pump, bounded WASAPI capture queue, Ctrl+C shutdown | Source only; Windows compile and runtime checks pending |
+| Windows playback endpoint | Not implemented | Loopback/file paths only — see `docs/wasapi-endpoint.md` |
 
 ## Build on the G16
 

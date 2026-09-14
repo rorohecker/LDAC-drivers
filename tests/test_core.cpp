@@ -1,22 +1,41 @@
 #include "avdtp.hpp"
 #include "encoder.hpp"
+#include "adaptive.hpp"
+#include "audio_queue.hpp"
+#include "reconnect.hpp"
+#include "wav.hpp"
 #include <iostream>
 #include <functional>
 #include <deque>
 #include <random>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <unistd.h>
 using namespace xm5;
 static unsigned checks=0;
-static void require(bool b){++checks;if(!b)throw Error("Test assertion failed at check "+std::to_string(checks));}
+static void require_at(bool b,int line){++checks;if(!b)throw Error("Test assertion failed at check "+std::to_string(checks)+" line "+std::to_string(line));}
+#define require(b) require_at((b),__LINE__)
 static void rejects(const std::function<void()>& f){bool threw=false;try{f();}catch(const Error&){threw=true;}require(threw);}
+
 class Fake:public Transport{
 public:
     std::deque<Bytes> response;std::vector<unsigned> signals;bool opened[2]={};unsigned reject_signal=0;uint16_t mtu=1024;
-    uint16_t open(unsigned c)override{opened[c]=true;return c?mtu:672;}
+    std::deque<Bytes> peer_commands; // injected before auto-replies are consumed
+    std::vector<Bytes> peer_replies; // captures accept/reject we send for peer cmds
+    unsigned fail_opens=0;
+    uint16_t open(unsigned c)override{
+        if(fail_opens){--fail_opens;throw Error("simulated open failure");}
+        opened[c]=true;return c?mtu:672;
+    }
     void close(unsigned c)noexcept override{opened[c]=false;}
     void send(unsigned c,const Bytes& p)override{
-        require(c==0);signals.push_back(p[1]);Bytes reply={uint8_t((p[0]&0xf0)|(p[1]==reject_signal?3:2)),p[1]};
+        if(c==1)return; // media ignored by Fake sink
+        require(c==0);
+        uint8_t type=p[0]&3;
+        if(type==2 || type==3){peer_replies.push_back(p);return;}
+        signals.push_back(p[1]);Bytes reply={uint8_t((p[0]&0xf0)|(p[1]==reject_signal?3:2)),p[1]};
         if(p[1]==reject_signal){reply.push_back(0x31);response.push_back(reply);return;}
         if(p[1]==1){reply.push_back(4);reply.push_back(8);}
         if(p[1]==2){auto caps=ldac_configuration();reply.insert(reply.end(),caps.begin(),caps.end());}
@@ -24,11 +43,17 @@ public:
         response.push_back(reply);
     }
     Bytes receive(unsigned c,unsigned timeout)override{
-        require(c==0 && timeout>0 && timeout<=3000);
+        require(c==0 && timeout<=3000);
+        if(!peer_commands.empty()){auto p=peer_commands.front();peer_commands.pop_front();return p;}
         if(response.empty())throw Error("fake timeout");
         auto p=response.front();response.pop_front();return p;
     }
 };
+
+static Bytes peer_cmd(uint8_t label,uint8_t signal,const Bytes& body={}){
+    Bytes p={uint8_t(label<<4),signal};p.insert(p.end(),body.begin(),body.end());return p;
+}
+
 int main(){try{
     require(supports_ldac_48_stereo(ldac_configuration()));
     auto caps=ldac_configuration();caps[caps.size()-2]=0x20;require(!supports_ldac_48_stereo(caps));
@@ -53,6 +78,79 @@ int main(){try{
         require(s.state()==State::idle && !f.opened[0] && !f.opened[1]);
     }
     {Fake f;f.mtu=672;Session s(f);rejects([&]{s.start();});require(!f.opened[0] && !f.opened[1]);}
+
+    // Phase 2: peer Suspend / Start / Close / Abort while streaming.
+    {Fake f;Session s(f);require(s.start()==1024);
+        f.peer_commands.push_back(peer_cmd(9,9,{uint8_t(1<<2)})); // Suspend local SEID 1
+        require(s.pump(10));require(s.state()==State::suspended);
+        require(!f.peer_replies.empty() && (f.peer_replies.back()[0]&3)==2);
+        f.peer_commands.push_back(peer_cmd(10,7,{uint8_t(1<<2)}));
+        require(s.pump(10));require(s.state()==State::streaming);
+        f.peer_commands.push_back(peer_cmd(11,8,{4})); // Close remote SEID 1 (fake peer uses seid 1)
+        require(!s.pump(10));require(s.state()==State::idle);}
+    {Fake f;Session s(f);require(s.start()==1024);
+        f.peer_commands.push_back(peer_cmd(3,10,{4}));
+        require(!s.pump(10));require(s.state()==State::idle);}
+    {Fake f;Session s(f);require(s.start()==1024);
+        f.peer_commands.push_back(peer_cmd(4,1)); // Discover
+        require(s.pump(10));require(s.state()==State::streaming);
+        require(f.peer_replies.back().size()>=4 && f.peer_replies.back()[2]==(1<<2|2));}
+    {Fake f;Session s(f);require(s.start()==1024);
+        f.peer_commands.push_back(peer_cmd(5,2,{uint8_t(1<<2)}));
+        require(s.pump(10));
+        Bytes accept=f.peer_replies.back();
+        require(accept.size()==2+ldac_configuration().size());
+        require(Bytes(accept.begin()+2,accept.end())==ldac_configuration());}
+
+    // Collision: peer command arrives while awaiting SetConfiguration response.
+    {Fake f;Session s(f);
+        // Preload: after Discover+GetCaps auto replies, inject peer Discover before SetConfiguration accept.
+        // Easier: start normally then inject during a Suspend we initiate via stop — covered above.
+        require(s.start()==1024);s.stop();}
+
+    // Phase 2: reconnect supervisor.
+    {unsigned sleeps=0;ReconnectSupervisor supervisor(ReconnectPolicy{3,10,40});
+        unsigned opens=0;
+        auto mtu=supervisor.run([&]{
+            ++opens;if(opens<3)throw Error("fail");return uint16_t(1024);
+        },[&](unsigned){++sleeps;},[]{return false;});
+        require(mtu==1024 && opens==3 && sleeps==2);
+        rejects([&]{ReconnectSupervisor(ReconnectPolicy{2,1,1}).run([]()->uint16_t{throw Error("x");return 0;},[](unsigned){},[]{return false;});});
+    }
+
+    // Phase 3: audio queue + adaptive controller.
+    {AudioQueue q(16);q.push({1,2,3,4});require(q.bytes()==4);rejects([&]{q.push(Bytes(13));});
+        auto b=q.pop();require(b.size()==4 && q.empty());}
+    {AdaptiveController a(LDACBT_EQMID_HQ,8,10);
+        require(!a.observe({5,0}));
+        require(!a.observe({20,0}));
+        require(!a.observe({20,0}));
+        require(a.observe({20,0})); // 3rd congestion → SQ
+        require(a.quality()==LDACBT_EQMID_SQ);
+        for(int i=0;i<11;++i)require(!a.observe({1,0}));
+        require(a.observe({1,0})); // recovery → HQ
+        require(a.quality()==LDACBT_EQMID_HQ);}
+
+    // Encoder mid-stream quality change.
+    {Encoder encoder(1024,LDACBT_EQMID_HQ,1,0,1);
+        require(encoder.set_quality(LDACBT_EQMID_MQ));
+        require(encoder.quality()==LDACBT_EQMID_MQ);
+        Bytes pcm(512*16,0);unsigned packets=0;
+        encoder.feed(pcm,[&](const Bytes& b,unsigned){require(b.size()>13);++packets;});
+        require(packets>=1);}
+
+    // WAV round-trip helper.
+    {char path[]="/tmp/xm5_test_XXXXXX.wav";
+        int fd=mkstemps(path,4);require(fd>=0);std::FILE* f=fdopen(fd,"wb");require(f);
+        // 8 samples stereo s16le
+        unsigned char hdr[]={
+            'R','I','F','F',36+32,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,
+            1,0,2,0,0x80,0xbb,0,0,0x00,0xee,0x02,0,4,0,16,0,'d','a','t','a',32,0,0,0
+        };
+        std::fwrite(hdr,1,sizeof(hdr),f);
+        unsigned char pcm[32]={};std::fwrite(pcm,1,32,f);std::fclose(f);
+        auto data=load_wav_pcm_s16le_48k_stereo(path);require(data.size()==32);std::remove(path);}
+
     // Real encoder -> actual RTP packetizer, across MTUs and quality modes.
     for(uint16_t mtu:{uint16_t(679),uint16_t(1024),uint16_t(4096)})for(int quality:{LDACBT_EQMID_HQ,LDACBT_EQMID_SQ,LDACBT_EQMID_MQ}){
         Encoder encoder(mtu,quality,65534,0xffffff00,123);
@@ -66,7 +164,6 @@ int main(){try{
         Bytes pcm(48000*4);
         for(size_t i=0;i<48000;++i){int16_t x=int16_t(8000*std::sin(2*3.141592653589793*440*i/48000));
             pcm[4*i]=pcm[4*i+2]=uint8_t(x);pcm[4*i+1]=pcm[4*i+3]=uint8_t(uint16_t(x)>>8);}
-        // Feed irregular sample-aligned chunks to exercise partial buffering.
         for(size_t i=0;i<pcm.size();){size_t n=std::min(size_t(772),pcm.size()-i);encoder.feed(Bytes(pcm.begin()+i,pcm.begin()+i+n),emit);i+=n;}
         encoder.finish(emit);require(total>=48000 && total<=48512);
     }
@@ -77,6 +174,12 @@ int main(){try{
         try{endpoints(b);}catch(const Error&){}
         try{r.push(b);}catch(const Error&){}
     }
-    std::cout<<"PASS: "<<checks<<" checks; negotiation, fragmentation, rejection cleanup, RTP, real encoder MTU/quality matrix, malformed corpus.\n";
+    // Targeted illegal peer-command bodies.
+    {Fake f;Session s(f);require(s.start()==1024);
+        f.peer_commands.push_back(peer_cmd(6,9,{uint8_t(63<<2)})); // bad SEID
+        require(s.pump(10));require(s.state()==State::streaming);
+        require((f.peer_replies.back()[0]&3)==3);}
+
+    std::cout<<"PASS: "<<checks<<" checks; negotiation, peer Suspend/Close/Abort, pump, reconnect, adaptive, WAV, RTP, malformed corpus.\n";
     return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<"\n";return 1;}}

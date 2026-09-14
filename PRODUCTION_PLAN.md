@@ -12,6 +12,8 @@ This document is the authoritative phase plan. Complete each phase’s exit crit
 
 Default working goal until changed: **internal alpha**, then reassess.
 
+**Status snapshot (software):** Phase 0 tooling done; Phases 2–3 portable protocol/audio policy done and Linux-tested; Phases 4–5 docs/CI process done. **Phase 0–1 hardware exit and Phase 2 async-BRB Verifier remain blocked on the G16.**
+
 ---
 
 ## Phase 0 — Buildable and bindable

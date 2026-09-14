@@ -19,6 +19,8 @@ std::vector<Endpoint> endpoints(const Bytes& bytes);
 bool supports_ldac_48_stereo(const Bytes& capabilities);
 Bytes ldac_configuration();
 Bytes command(uint8_t label,uint8_t signal,const Bytes& body={});
+Bytes accept_response(uint8_t label,uint8_t signal,const Bytes& body={});
+Bytes reject_response(uint8_t label,uint8_t signal,uint8_t error_code);
 Bytes media_packet(const Bytes& encoded,uint8_t frames,uint16_t sequence,
                    uint32_t timestamp,uint32_t ssrc,uint16_t mtu);
 class Transport {
@@ -29,16 +31,26 @@ public:
     virtual Bytes receive(unsigned channel,unsigned timeout_ms)=0;
     virtual void close(unsigned channel) noexcept=0;
 };
-enum class State { idle, signaling, configured, open, streaming };
+enum class State { idle, signaling, configured, open, streaming, suspended };
 class Session {
     Transport& transport_; uint8_t label_=0,seid_=0; State state_=State::idle;
+    Reassembler inbound_;
     Bytes transact(uint8_t signal,const Bytes& body={});
+    void handle_peer(const Message& message);
+    void reply_accept(uint8_t label,uint8_t signal,const Bytes& body={});
+    void reply_reject(uint8_t label,uint8_t signal,uint8_t error_code);
+    void teardown_channels() noexcept;
+    bool peer_targets_local(const Bytes& body) const;
+    bool peer_targets_remote(const Bytes& body) const;
 public:
     explicit Session(Transport& t):transport_(t){}
     ~Session(){ stop(); }
     Session(const Session&)=delete; Session& operator=(const Session&)=delete;
     uint16_t start();
     void stop() noexcept;
+    // Drain one signaling packet if available. Returns false if the session ended.
+    bool pump(unsigned timeout_ms=1);
     State state()const{return state_;}
+    uint8_t remote_seid()const{return seid_;}
 };
 }
