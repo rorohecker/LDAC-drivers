@@ -1,0 +1,100 @@
+# XM5 LDAC driver project — first implementation
+
+This is development source, not a working driver release. It now contains a Windows Bluetooth transport driver and a live-streaming client in addition to the tested encoder. The Windows components have not been compiled or run here. Installing the source archive does not enable LDAC.
+
+Target: Sony WH-1000XM5, ASUS ROG Zephyrus G16 (2025), Intel Wireless Bluetooth, Windows 11 Home 25H2 build 26200.9168. The screenshots establish these names but do not identify the exact Bluetooth service hardware ID or establish compatibility with this driver.
+
+## Implemented components
+
+| Component | Implementation | Verification |
+|---|---|---|
+| LDAC encoder | Sony encoder, 48 kHz / 16-bit / stereo, HQ/SQ/MQ, partial blocks and drain | Compiled and integration-tested on Linux |
+| AVDTP source | Discover, GetCapabilities, LDAC selection, SetConfiguration, Open, Start, Suspend, Close, Abort on partial setup | Fake-peer negotiation and failure tests |
+| Signaling parser | Single and fragmented responses, transaction matching, bounds checks | Unit tests and malformed-input corpus |
+| Media packets | RTP header, LDAC frame count, sequence/timestamp updates and MTU bounds | Real encoder matrix over three quality modes and three MTUs |
+| KMDF transport | Two L2CAP channels, packet send/receive, IOCTL validation, exclusive administrator access, disconnect notification and cleanup paths | Source reviewed against Microsoft interfaces; WDK compile and runtime checks pending |
+| Windows streaming client | PCM file input, packet pacing, bounded WASAPI capture queue, Ctrl+C shutdown | Source only; Windows compile and runtime checks pending |
+| Windows playback endpoint | Not implemented | The first live path uses file input or loopback from an existing device |
+
+## Build on the G16
+
+Use Visual Studio C++ build tools with CMake. Building the kernel component also requires the Windows SDK, WDK, and WDK Visual Studio integration. The build scripts install nothing and change no driver or security settings.
+
+From a PowerShell terminal in this extracted project folder:
+
+```powershell
+.\tools\build.ps1
+```
+
+This builds the user-mode client and portable tests, then runs CTest. If Python is available, CTest also runs the offline encoder tests.
+
+To also attempt the kernel driver compile with the WDK installed:
+
+```powershell
+.\tools\build.ps1 -IncludeDriver
+```
+
+The current WDK project targets x64 and KMDF 1.33. Its toolset selection needs validation against the installed WDK. No signed driver or catalog is included. The CMake configuration and PowerShell script were not executed here because this environment has neither CMake nor Windows tools; direct GCC/G++ builds were used for the portable tests.
+
+If PowerShell policy prevents the script from running, the equivalent user-mode commands in a Visual Studio developer terminal are:
+
+```text
+cmake -S . -B build -A x64
+cmake --build build --config Debug
+ctest --test-dir build -C Debug --output-on-failure
+msbuild driver\xm5ldac.vcxproj /p:Configuration=Debug /p:Platform=x64
+```
+
+The last command requires the WDK. Send the first failing build output, or the successful build/test log, to continue Windows-specific development.
+
+## Establish the device binding
+
+Run this read-only report while the headphones are paired:
+
+```powershell
+.\tools\hardware-report.ps1
+```
+
+It prints the XM5 and Intel Bluetooth device instances, hardware IDs, current service, and driver version. Bluetooth addresses may appear in the device IDs; this report stays in the terminal unless you choose to share or save it.
+
+The kernel code is intended to attach as the profile function driver on the headphones' Bluetooth Audio Sink service device. It must not replace the Intel radio driver. The `.inf.in` file is deliberately an unfinished template: the actual service hardware ID and its existing binding have not yet been checked. There is no installer in this package, and ordinary Windows A2DP and this driver must not compete for the same profile connection. Resolve binding and the Windows build before preparing a signed test package.
+
+## Intended live tests after driver validation and binding
+
+These commands describe the implemented client interface; they have not produced verified headphone playback yet.
+
+```text
+build\Debug\xm5_stream.exe --address AA:BB:CC:DD:EE:FF --file input.s16le sq
+build\Debug\xm5_stream.exe --address AA:BB:CC:DD:EE:FF --loopback sq
+```
+
+Use the headphones' actual Bluetooth address. The client matches it against the address reported by the bound driver, so it does not silently choose a different Bluetooth device.
+
+PCM input must be raw 48 kHz, stereo, signed 16-bit little-endian audio. WAV, MP3, and FLAC containers cannot be passed directly. Start with a short PCM file to isolate transport from audio capture. Loopback captures the default playback endpoint selected at startup; audio may also play locally, and the client does not automatically change or mute that device. Capture requests shared-mode conversion to 48 kHz stereo; support must be checked on this Windows installation.
+
+## Remaining work
+
+Read `KNOWN_GAPS.md` before treating this as a complete driver. The next concrete gate is a Windows build. After that: validate binding, L2CAP opening, real XM5 negotiation, and PCM-file playback. A dedicated output endpoint, complete peer-initiated signaling, reconnection, and production driver lifecycle/signing work remain.
+
+## Source and references
+
+- `core/`: portable protocol and encoder wrapper
+- `windows/`: driver client, WASAPI capture, streaming executable
+- `driver/`: experimental KMDF source, WDK project, INF template and shared ABI
+- `tests/`: integration tests and malformed-input corpus
+- `tools/`: build and read-only hardware report scripts, offline encoder
+- `vendor/`: Sony LDAC source, original LICENSE/NOTICE, documented local portability fix
+
+LDAC source revision: `eeee1a3f5f8df1282e3a6d297085885fd886737b`, https://android.googlesource.com/platform/external/libldac/
+
+Windows interfaces reviewed:
+
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/bluetooth/bluetooth-profile-drivers-overview
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/bthddi/ns-bthddi-_brb_l2ca_open_channel
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/bthddi/ns-bthddi-_brb_l2ca_acl_transfer
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/bthddi/ns-bthddi-_bth_profile_driver_interface
+- https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/bthddi/nc-bthddi-pfnbth_initialize_brb
+- https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording
+- https://github.com/microsoft/Windows-driver-samples/tree/main/bluetooth/bthecho
+
+This is independent source; no Alternative A2DP Driver binary or license data is used.

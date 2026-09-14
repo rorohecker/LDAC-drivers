@@ -1,0 +1,6 @@
+build/
+driver/out/
+driver/obj/
+*.user
+*.ldacdiag
+*.s16le
