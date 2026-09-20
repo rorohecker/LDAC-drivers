@@ -7,9 +7,12 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 
 # Phase 0 smoke: confirm the bound driver answers XM5_IOCTL_INFO for this address.
-# Prefers a tiny probe via xm5_stream if present; otherwise uses a .NET P/Invoke opener.
+# Uses a .NET P/Invoke probe. The client path is reported for Phase 1 only.
 
 function ConvertTo-BthUlongLong([string]$addr) {
+    if ($addr.Trim() -notmatch '^(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$') {
+        throw "Address must look like AA:BB:CC:DD:EE:FF (got $addr)"
+    }
     $parts = $addr.Trim() -split '[:\-]'
     if ($parts.Count -ne 6) { throw "Address must look like AA:BB:CC:DD:EE:FF (got $addr)" }
     [uint64]$value = 0
@@ -20,6 +23,10 @@ function ConvertTo-BthUlongLong([string]$addr) {
 }
 
 $addrValue = ConvertTo-BthUlongLong $Address
+$publicHeader = Join-Path $projectRoot 'driver\public.h'
+$abiDefinition = [regex]::Match((Get-Content -Raw -LiteralPath $publicHeader), '(?m)^\s*#define\s+XM5_ABI\s+(\d+)[uU]?\s*$')
+if (-not $abiDefinition.Success) { throw "Cannot read XM5_ABI from $publicHeader" }
+[uint32]$expectedAbi = $abiDefinition.Groups[1].Value
 
 if ([string]::IsNullOrWhiteSpace($StreamExe)) {
     $candidates = @(
@@ -30,6 +37,7 @@ if ([string]::IsNullOrWhiteSpace($StreamExe)) {
     $StreamExe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 }
 
+if (-not ('Xm5Smoke' -as [type])) {
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -60,6 +68,7 @@ public static class Xm5Smoke {
   public const uint XM5_IOCTL_INFO = 0x00226000;
 }
 "@
+}
 
 # CTL_CODE = (DeviceType<<16) | (Access<<14) | (Function<<2) | Method
 $expectedIoctl = [uint32]((0x22 -shl 16) -bor (1 -shl 14) -bor (0x800 -shl 2) -bor 0)
@@ -76,12 +85,12 @@ if ($devInfo -eq [IntPtr]::Zero -or $devInfo -eq [IntPtr]::new(-1)) {
 try {
     $found = 0
     $matched = $false
-    for ($i = 0u; $i -lt 64u; $i++) {
+    for ([uint32]$i = 0; $i -lt 64; $i++) {
         $iface = New-Object Xm5Smoke+SP_DEVICE_INTERFACE_DATA
         $iface.cbSize = [Runtime.InteropServices.Marshal]::SizeOf($iface)
         if (-not [Xm5Smoke]::SetupDiEnumDeviceInterfaces($devInfo, [IntPtr]::Zero, [ref]$guid, $i, [ref]$iface)) { break }
         $found++
-        $required = 0u
+        [uint32]$required = 0
         [Xm5Smoke]::SetupDiGetDeviceInterfaceDetail($devInfo, [ref]$iface, [IntPtr]::Zero, 0, [ref]$required, [IntPtr]::Zero) | Out-Null
         if ($required -eq 0) { continue }
         $buffer = [Runtime.InteropServices.Marshal]::AllocHGlobal([int]$required)
@@ -92,14 +101,16 @@ try {
                 continue
             }
             $path = [Runtime.InteropServices.Marshal]::PtrToStringUni([IntPtr]::Add($buffer, 4))
-            $handle = [Xm5Smoke]::CreateFile($path, 0xC0000000, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
+            $handle = [Xm5Smoke]::CreateFile($path, [uint32]3221225472, 0, [IntPtr]::Zero, 3, 0, [IntPtr]::Zero)
             if ($handle.IsInvalid) {
-                Write-Output "Interface present but CreateFile failed (need Administrators): $path"
+                $openError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+                $handle.Dispose()
+                Write-Output "Interface present but CreateFile failed (Win32=$openError; access requires Administrator): $path"
                 continue
             }
             try {
                 $out = New-Object byte[] 16
-                $returned = 0u
+                [uint32]$returned = 0
                 $ok = [Xm5Smoke]::DeviceIoControl($handle, [Xm5Smoke]::XM5_IOCTL_INFO, [IntPtr]::Zero, 0, $out, [uint32]$out.Length, [ref]$returned, [IntPtr]::Zero)
                 if (-not $ok -or $returned -lt 16) {
                     Write-Output "IOCTL_INFO failed on $path (Win32=$( [Runtime.InteropServices.Marshal]::GetLastWin32Error() ))"
@@ -110,6 +121,10 @@ try {
                 $hex = ('{0:X12}' -f $address) -replace '..(?!$)', '$0:'
                 Write-Output "OK interface=$path"
                 Write-Output "OK abi_version=$version address=$hex"
+                if ($version -ne $expectedAbi) {
+                    Write-Output "FAIL: ABI version $version does not match driver/public.h ($expectedAbi)"
+                    continue
+                }
                 if ($address -eq $addrValue) {
                     Write-Output "PASS: address matches $Address"
                     $matched = $true

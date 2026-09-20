@@ -2,7 +2,8 @@ param(
     [switch]$IncludeDriver,
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
-    [string]$HardwareId = ''
+    [string]$HardwareId = '',
+    [string]$WindowsTargetPlatformVersion = ''
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -78,10 +79,22 @@ $ctest = Join-Path (Split-Path $cmakePath -Parent) 'ctest.exe'
 if ($LASTEXITCODE) { throw 'Tests failed.' }
 
 if ($IncludeDriver) {
+    if ([string]::IsNullOrWhiteSpace($WindowsTargetPlatformVersion)) {
+        $includeRoot = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Include'
+        $kit = Get-ChildItem -LiteralPath $includeRoot -Directory | Where-Object {
+            $_.Name -match '^10\.0\.\d+\.0$' -and
+            (Test-Path (Join-Path $_.FullName 'km\ntddk.h')) -and
+            (Test-Path (Join-Path $_.FullName 'um\Windows.h'))
+        } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+        if (-not $kit) { throw 'Install a matching Windows SDK and WDK, including Visual Studio integration.' }
+        $WindowsTargetPlatformVersion = $kit.Name
+    }
+    if ($WindowsTargetPlatformVersion -notmatch '^10\.0\.\d+\.0$') { throw 'Invalid SDK/WDK version.' }
     $msbuild = Join-Path $vsRoot 'MSBuild\Current\Bin\MSBuild.exe'
     if (!(Test-Path $msbuild)) { throw "MSBuild not found at $msbuild" }
     $proj = Join-Path $projectRoot 'driver\xm5ldac.vcxproj'
-    & $msbuild $proj "/p:Configuration=$Configuration" '/p:Platform=x64' '/m'
+    Write-Output "SDK/WDK: $WindowsTargetPlatformVersion"
+    & $msbuild $proj "/p:Configuration=$Configuration" '/p:Platform=x64' "/p:WindowsTargetPlatformVersion=$WindowsTargetPlatformVersion" '/m'
     if ($LASTEXITCODE) { throw 'WDK driver build failed. Save this build output for diagnosis.' }
     $sys = Join-Path $projectRoot "driver\out\x64\$Configuration\xm5ldac.sys"
     if (!(Test-Path $sys)) { throw "Driver build reported success but $sys is missing." }
@@ -93,4 +106,4 @@ if (-not [string]::IsNullOrWhiteSpace($HardwareId)) {
 }
 
 Write-Output 'Build checks completed. This script does not install or bind a driver.'
-Write-Output 'Next: hardware-report.ps1 → resolve-binding.ps1 → generate-inf.ps1 → package-test.ps1 → sign-test.ps1 → install-test.ps1'
+Write-Output 'Next: hardware-report.ps1 -> resolve-binding.ps1 -> generate-inf.ps1 -> package-test.ps1 -> sign-test.ps1 -> install-test.ps1'

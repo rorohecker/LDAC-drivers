@@ -10,3 +10,8 @@ package/
 *.cat
 *.cer
 *.pfx
+artifacts/
+hw.json
+LOCAL_PHASE01_CHECKLIST.md
+*.pdb
+*.ilk

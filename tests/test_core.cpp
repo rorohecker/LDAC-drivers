@@ -12,7 +12,14 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include "../windows/errors.hpp"
+#else
 #include <unistd.h>
+#endif
 using namespace xm5;
 static unsigned checks=0;
 static void require_at(bool b,int line){++checks;if(!b)throw Error("Test assertion failed at check "+std::to_string(checks)+" line "+std::to_string(line));}
@@ -34,18 +41,18 @@ public:
         if(c==1)return; // media ignored by Fake sink
         require(c==0);
         uint8_t type=p[0]&3;
-        if(type==2 || type==3){peer_replies.push_back(p);return;}
+        if(type!=0){peer_replies.push_back(p);return;}
         signals.push_back(p[1]);Bytes reply={uint8_t((p[0]&0xf0)|(p[1]==reject_signal?3:2)),p[1]};
         if(p[1]==reject_signal){reply.push_back(0x31);response.push_back(reply);return;}
-        if(p[1]==1){reply.push_back(4);reply.push_back(8);}
+        if(p[1]==1){reply.push_back(8);reply.push_back(8);}
         if(p[1]==2){auto caps=ldac_configuration();reply.insert(reply.end(),caps.begin(),caps.end());}
-        if(p[1]==3){auto caps=ldac_configuration();require(p[2]==4 && p[3]==4);require(Bytes(p.begin()+4,p.end())==caps);}
+        if(p[1]==3){auto caps=ldac_configuration();require(p[2]==8 && p[3]==4);require(Bytes(p.begin()+4,p.end())==caps);}
         response.push_back(reply);
     }
     Bytes receive(unsigned c,unsigned timeout)override{
         require(c==0 && timeout<=3000);
         if(!peer_commands.empty()){auto p=peer_commands.front();peer_commands.pop_front();return p;}
-        if(response.empty())throw Error("fake timeout");
+        if(response.empty())throw Timeout("fake timeout");
         auto p=response.front();response.pop_front();return p;
     }
 };
@@ -132,6 +139,38 @@ int main(){try{
         require(a.quality()==LDACBT_EQMID_HQ);}
 
     // Encoder mid-stream quality change.
+    // Receive timeout classification must not depend on human-readable text.
+#ifdef _WIN32
+    for(DWORD code:{DWORD(ERROR_SEM_TIMEOUT),DWORD(ERROR_TIMEOUT)}){
+        bool timeout=false;try{driver_error(code,true);}catch(const Timeout&){timeout=true;}require(timeout);
+        bool fatal=false;try{driver_error(code,false);}catch(const StreamInterrupted&){fatal=true;}require(fatal);
+    }
+    {bool fatal=false;try{driver_error(ERROR_ACCESS_DENIED,true);}catch(const StreamInterrupted&){fatal=true;}require(fatal);}
+#endif
+    {Fake f;Session s(f);s.start();require(s.remote_seid()==2);
+        require(s.pump(1)); // idle receive preserves the stream
+        auto peer=[&](uint8_t signal,const Bytes& body){f.peer_commands.push_back(peer_cmd(3,signal,body));require(s.pump(1));return f.peer_replies.back();};
+        require(peer(4,{4})==accept_response(3,4,ldac_configuration()));
+        require(peer(4,{8})==reject_response(3,4,0x12));
+        require(peer(9,{8})==reject_response(3,9,0x12,8));
+        require(s.state()==State::streaming);
+        require(peer(9,{4,8})==reject_response(3,9,0x12,8));
+        require(s.state()==State::streaming);
+        require(peer(10,{})==reject_response(3,10,0x11));
+        require(s.state()==State::streaming);
+        require(peer(7,{4})==reject_response(3,7,0x31,4));
+        require(peer(63,{})==general_reject(3,63));
+    }
+    {unsigned tries=0;bool cancelled=false;
+        try{ReconnectSupervisor().run([&]()->int{++tries;throw Cancelled("stop");},[](unsigned){},[]{return false;});}
+        catch(const Cancelled&){cancelled=true;}
+        require(cancelled && tries==1);
+        rejects([]{ReconnectSupervisor invalid(ReconnectPolicy{0,1,1});});
+    }
+    {AudioQueue q(8);q.push(Bytes(8));rejects([&]{q.push(Bytes(4));});require(q.bytes()==8);
+        q.clear();require(q.empty() && q.bytes()==0);q.push(Bytes(4));require(q.pop().size()==4);}
+
+    // Encoder mid-stream quality change.
     {Encoder encoder(1024,LDACBT_EQMID_HQ,1,0,1);
         require(encoder.set_quality(LDACBT_EQMID_MQ));
         require(encoder.quality()==LDACBT_EQMID_MQ);
@@ -140,8 +179,15 @@ int main(){try{
         require(packets>=1);}
 
     // WAV round-trip helper.
-    {char path[]="/tmp/xm5_test_XXXXXX.wav";
+    {
+#ifdef _WIN32
+        char path[MAX_PATH];
+        require(GetTempFileNameA(".","xm5",0,path)!=0);
+        std::FILE* f=nullptr;require(fopen_s(&f,path,"wb")==0);require(f);
+#else
+        char path[]="/tmp/xm5_test_XXXXXX.wav";
         int fd=mkstemps(path,4);require(fd>=0);std::FILE* f=fdopen(fd,"wb");require(f);
+#endif
         // 8 samples stereo s16le
         unsigned char hdr[]={
             'R','I','F','F',36+32,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,
@@ -149,7 +195,19 @@ int main(){try{
         };
         std::fwrite(hdr,1,sizeof(hdr),f);
         unsigned char pcm[32]={};std::fwrite(pcm,1,32,f);std::fclose(f);
-        auto data=load_wav_pcm_s16le_48k_stereo(path);require(data.size()==32);std::remove(path);}
+        auto data=load_wav_pcm_s16le_48k_stereo(path);require(data.size()==32);
+        {PcmReader reader(path,true);require(reader.next(12).size()==12);require(reader.remaining()==20);
+            require(reader.next().size()==20);require(reader.next().empty());rejects([&]{reader.next(3);});}
+        auto rewrite=[&](const Bytes& bytes){std::ofstream out(path,std::ios::binary|std::ios::trunc);
+            out.write(reinterpret_cast<const char*>(bytes.data()),static_cast<std::streamsize>(bytes.size()));};
+        Bytes valid(hdr,hdr+sizeof(hdr));valid.resize(sizeof(hdr)+32);
+        auto bad=valid;bad[16]=0xff;bad[17]=0xff;bad[18]=0xff;bad[19]=0xff;
+        rewrite(bad);rejects([&]{PcmReader reader(path,true);}); // huge fmt before allocation
+        bad=valid;bad[4]=0xff;rewrite(bad);rejects([&]{PcmReader reader(path,true);}); // RIFF beyond file
+        bad=valid;bad[29]=0;rewrite(bad);rejects([&]{PcmReader reader(path,true);}); // invalid byte rate
+        bad=valid;bad[40]=31;rewrite(bad);rejects([&]{PcmReader reader(path,true);}); // sample alignment
+        rewrite(Bytes(3));rejects([&]{PcmReader reader(path,false);});
+        std::remove(path);}
 
     // Real encoder -> actual RTP packetizer, across MTUs and quality modes.
     for(uint16_t mtu:{uint16_t(679),uint16_t(1024),uint16_t(4096)})for(int quality:{LDACBT_EQMID_HQ,LDACBT_EQMID_SQ,LDACBT_EQMID_MQ}){

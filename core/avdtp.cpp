@@ -6,11 +6,8 @@ namespace {
 constexpr uint8_t kLocalSeid=1;
 constexpr uint8_t kErrBadState=0x31;
 constexpr uint8_t kErrBadSeid=0x12;
-constexpr uint8_t kErrUnsupported=0x29;
-uint8_t seid_byte(const Bytes& body){
-    if(body.empty())throw Error("Missing SEID in peer command");
-    return uint8_t(body[0]>>2);
-}
+constexpr uint8_t kErrBadLength=0x11;
+constexpr uint8_t kErrUnsupported=0x19;
 }
 std::optional<Message> Reassembler::push(const Bytes& p) {
     auto fail=[&](const char* s)->std::optional<Message>{reset();throw Error(s);};
@@ -74,9 +71,15 @@ Bytes accept_response(uint8_t label,uint8_t signal,const Bytes& body){
     if(label>15 || signal==0 || signal>63 || body.size()>46)throw Error("Invalid accept response");
     Bytes result={uint8_t((label<<4)|2),signal}; result.insert(result.end(),body.begin(),body.end());return result;
 }
-Bytes reject_response(uint8_t label,uint8_t signal,uint8_t error_code){
+Bytes reject_response(uint8_t label,uint8_t signal,uint8_t error_code,uint8_t detail){
     if(label>15 || signal==0 || signal>63)throw Error("Invalid reject response");
-    return {uint8_t((label<<4)|3),signal,error_code};
+    Bytes result={uint8_t((label<<4)|3),signal};
+    if(signal==3 || signal==5 || signal==7 || signal==9)result.push_back(detail);
+    result.push_back(error_code);return result;
+}
+Bytes general_reject(uint8_t label,uint8_t signal){
+    if(label>15 || signal>63)throw Error("Invalid general reject");
+    return {uint8_t((label<<4)|1),signal};
 }
 Bytes media_packet(const Bytes& b,uint8_t frames,uint16_t sequence,uint32_t ts,uint32_t ssrc,uint16_t mtu){
     if(b.empty() || !frames || frames>15 || b.size()+13>mtu)throw Error("Invalid LDAC media packet size/frame count");
@@ -87,14 +90,11 @@ Bytes media_packet(const Bytes& b,uint8_t frames,uint16_t sequence,uint32_t ts,u
 void Session::reply_accept(uint8_t label,uint8_t signal,const Bytes& body){
     transport_.send(0,accept_response(label,signal,body));
 }
-void Session::reply_reject(uint8_t label,uint8_t signal,uint8_t error_code){
-    transport_.send(0,reject_response(label,signal,error_code));
+void Session::reply_reject(uint8_t label,uint8_t signal,uint8_t error_code,uint8_t detail){
+    transport_.send(0,reject_response(label,signal,error_code,detail));
 }
 bool Session::peer_targets_local(const Bytes& body) const {
-    return !body.empty() && seid_byte(body)==kLocalSeid;
-}
-bool Session::peer_targets_remote(const Bytes& body) const {
-    return seid_ && !body.empty() && seid_byte(body)==seid_;
+    return body.size()==1 && body[0]==uint8_t(kLocalSeid<<2);
 }
 void Session::teardown_channels() noexcept {
     transport_.close(1);transport_.close(0);state_=State::idle;seid_=0;inbound_.reset();
@@ -102,6 +102,19 @@ void Session::teardown_channels() noexcept {
 void Session::handle_peer(const Message& message){
     const uint8_t signal=message.signal,label=message.label;
     const Bytes& body=message.body;
+    // AVDTP endpoint identifiers are local to the receiving device. Validate the
+    // complete command before any state change (including multi-SEID commands).
+    if(signal==1 && !body.empty()){reply_reject(label,signal,kErrBadLength);return;}
+    if(signal==7 || signal==9){
+        if(body.empty()){reply_reject(label,signal,kErrBadLength,0);return;}
+        for(auto seid:body){
+            if(seid!=uint8_t(kLocalSeid<<2)){reply_reject(label,signal,kErrBadSeid,uint8_t(seid&0xfc));return;}
+        }
+        if(body.size()!=1){reply_reject(label,signal,kErrBadState,body.front());return;}
+    }else if(signal==2 || signal==4 || signal==6 || signal==8 || signal==10 || signal==12){
+        if(body.size()!=1){reply_reject(label,signal,kErrBadLength);return;}
+        if(!peer_targets_local(body)){reply_reject(label,signal,kErrBadSeid);return;}
+    }
     switch(signal){
     case 1: { // Discover — advertise local source SEID 1.
         uint8_t in_use=(state_==State::idle || state_==State::signaling)?0:2;
@@ -117,38 +130,25 @@ void Session::handle_peer(const Message& message){
         if(state_==State::idle || state_==State::signaling || !seid_){
             reply_reject(label,signal,kErrBadState);return;
         }
-        if(!(peer_targets_local(body) || peer_targets_remote(body))){
-            reply_reject(label,signal,kErrBadSeid);return;
-        }
-        {
-            Bytes config={uint8_t(seid_<<2),uint8_t(kLocalSeid<<2)};
-            auto codec=ldac_configuration();config.insert(config.end(),codec.begin(),codec.end());
-            reply_accept(label,signal,config);
-        }
+        reply_accept(label,signal,ldac_configuration());
         return;
     case 7: // Start
-        if(state_!=State::open && state_!=State::suspended){reply_reject(label,signal,kErrBadState);return;}
-        if(!(peer_targets_local(body) || peer_targets_remote(body))){reply_reject(label,signal,kErrBadSeid);return;}
+        if(state_!=State::open && state_!=State::suspended){reply_reject(label,signal,kErrBadState,body[0]);return;}
         reply_accept(label,signal);state_=State::streaming;return;
     case 9: // Suspend
-        if(state_!=State::streaming){reply_reject(label,signal,kErrBadState);return;}
-        if(!(peer_targets_local(body) || peer_targets_remote(body))){reply_reject(label,signal,kErrBadSeid);return;}
+        if(state_!=State::streaming){reply_reject(label,signal,kErrBadState,body[0]);return;}
         reply_accept(label,signal);state_=State::suspended;return;
     case 8: // Close
         if(state_==State::idle || state_==State::signaling){reply_reject(label,signal,kErrBadState);return;}
-        if(!(peer_targets_local(body) || peer_targets_remote(body))){reply_reject(label,signal,kErrBadSeid);return;}
         reply_accept(label,signal);teardown_channels();return;
     case 10: // Abort
-        if(!(peer_targets_local(body) || peer_targets_remote(body) || body.empty())){
-            reply_reject(label,signal,kErrBadSeid);return;
-        }
         reply_accept(label,signal);teardown_channels();return;
     case 3: // SetConfiguration — peer-as-INT not supported for this source.
     case 5: // Reconfigure
     case 6: // Open from peer
         reply_reject(label,signal,kErrUnsupported);return;
     default:
-        reply_reject(label,signal,kErrUnsupported);return;
+        transport_.send(0,general_reject(label,signal));return;
     }
 }
 Bytes Session::transact(uint8_t signal,const Bytes& body){
@@ -157,8 +157,9 @@ Bytes Session::transact(uint8_t signal,const Bytes& body){
     Reassembler assembly;
     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
     for(unsigned count=0;count<64;++count){
+        if(cancelled_ && cancelled_())throw Cancelled("Session cancelled");
         auto left=std::chrono::duration_cast<std::chrono::milliseconds>(deadline-std::chrono::steady_clock::now()).count();
-        if(left<=0)throw Error("AVDTP response timeout");
+        if(left<=0)throw Timeout("AVDTP response timeout");
         auto m=assembly.push(transport_.receive(0,static_cast<unsigned>(left)));
         if(!m)continue;
         if(m->type==0){
@@ -182,11 +183,8 @@ bool Session::pump(unsigned timeout_ms){
         if(m->type!=0)throw Error("Unexpected unsolicited AVDTP response");
         handle_peer(*m);
         return state_!=State::idle;
-    }catch(const Error& e){
-        // Timeouts are idle polls; other errors end the pump as fatal for the streamer.
-        if(std::string(e.what()).find("timeout")!=std::string::npos ||
-           std::string(e.what()).find("Timeout")!=std::string::npos)return state_!=State::idle;
-        throw;
+    }catch(const Timeout&){
+        return state_!=State::idle;
     }
 }
 uint16_t Session::start(){

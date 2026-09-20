@@ -12,12 +12,26 @@ function Test-IsAdmin {
 }
 if (-not (Test-IsAdmin)) { throw 'install-test.ps1 must run elevated (Administrator).' }
 
+if (!(Test-Path -LiteralPath $PackageDir -PathType Container)) { throw "Missing package directory: $PackageDir" }
+$PackageDir = (Resolve-Path -LiteralPath $PackageDir).ProviderPath
 $inf = Join-Path $PackageDir 'xm5ldac.inf'
 $sys = Join-Path $PackageDir 'xm5ldac.sys'
 if (!(Test-Path $inf)) { throw "Missing $inf" }
 if (!(Test-Path $sys)) { throw "Missing $sys" }
-if ((Get-Content -Raw $inf) -match '__HEADPHONE_SERVICE_HARDWARE_ID__') {
+$infText = Get-Content -Raw -LiteralPath $inf
+if ($infText -match '__HEADPHONE_SERVICE_HARDWARE_ID__') {
     throw 'Refusing to install INF that still has the placeholder HardwareId.'
+}
+$models = [regex]::Match($infText, '(?ims)^\[Models\.NTamd64\.10\.0\.\.\.22000\][ \t]*\r?\n(?<lines>.*?)(?=^\[|\z)')
+$modelLines = @($models.Groups['lines'].Value -split '\r?\n' | ForEach-Object { ($_ -split ';', 2)[0].Trim() } | Where-Object { $_ })
+if (-not $models.Success -or $modelLines.Count -ne 1) {
+    throw 'Refusing INF without exactly one XM5 Audio Sink model. Regenerate it with generate-inf.ps1.'
+}
+$binding = [regex]::Match($modelLines[0], '(?i)^%Description%\s*=\s*Install\s*,\s*(?<id>[^,\s]+)\s*$')
+$hardwareId = $binding.Groups['id'].Value
+if (-not $binding.Success -or $hardwareId -match 'Intel|8087|MS_BTHPORT|MS_BTHBRB|Wireless Bluetooth' -or
+    $hardwareId -notmatch '^BTHENUM\\\{0000110b-0000-1000-8000-00805f9b34fb\}(?:_[A-Za-z0-9]+&[A-Fa-f0-9]+)*\z') {
+    throw 'Refusing INF whose model is not a Bluetooth Audio Sink BTHENUM service (UUID 0000110b).'
 }
 
 Write-Warning @'
@@ -27,7 +41,9 @@ Use only on a development machine. Uninstall with tools/uninstall-test.ps1.
 '@
 
 if (-not $SkipTestSigningEnable) {
-    $testsigning = (bcdedit /enum '{current}' | Select-String -Pattern 'testsigning\s+Yes')
+    $bootConfig = bcdedit /enum '{current}'
+    if ($LASTEXITCODE) { throw 'bcdedit failed to read the current boot configuration; testsigning was not changed.' }
+    $testsigning = $bootConfig | Select-String -Pattern 'testsigning\s+Yes'
     if (-not $testsigning) {
         Write-Output 'Enabling testsigning (reboot required before the driver will load)...'
         bcdedit /set testsigning on
@@ -37,7 +53,7 @@ if (-not $SkipTestSigningEnable) {
     }
 }
 
-$cert = Join-Path (Split-Path (Split-Path $PackageDir -Parent) -Parent) 'package\xm5ldac-test.cer'
+$cert = Join-Path (Split-Path $PackageDir -Parent) 'xm5ldac-test.cer'
 # Prefer cert next to package parent package\xm5ldac-test.cer from repo layout.
 $repoCert = Join-Path (Split-Path $PSScriptRoot -Parent) 'package\xm5ldac-test.cer'
 if (Test-Path $repoCert) {
@@ -55,5 +71,5 @@ Write-Output "Adding driver package via pnputil: $inf"
 pnputil /add-driver $inf /install
 if ($LASTEXITCODE) { throw "pnputil /add-driver failed with exit $LASTEXITCODE" }
 
-Write-Output 'Install requested. Check Device Manager → Bluetooth for the XM5 sink service.'
+Write-Output 'Install requested. Check Device Manager > Bluetooth for the XM5 sink service.'
 Write-Output 'Then: .\tools\smoke-info.ps1 -Address <XM5 Bluetooth address>'

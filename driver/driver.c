@@ -9,10 +9,13 @@
 #include "public.h"
 #include "xm5_trace.h"
 
-typedef struct { L2CAP_CHANNEL_HANDLE handle; USHORT out_mtu,in_mtu; volatile LONG disconnected; } CHANNEL;
+typedef struct {
+    WDFDEVICE device; L2CAP_CHANNEL_HANDLE handle; USHORT out_mtu,in_mtu;
+    volatile LONG disconnected, references; KEVENT released;
+} CHANNEL;
 typedef struct {
     WDFDEVICE device; BTH_PROFILE_DRIVER_INTERFACE profile; BTH_ADDR address;
-    BOOLEAN ready; CHANNEL channels[2];
+    BOOLEAN ready, failed; WDFWAITLOCK lifecycle; CHANNEL channels[2];
 } DEVICE_CONTEXT;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT,Context)
 DRIVER_INITIALIZE DriverEntry;
@@ -21,7 +24,7 @@ EVT_WDF_DEVICE_PREPARE_HARDWARE Prepare;
 EVT_WDF_DEVICE_RELEASE_HARDWARE Release;
 EVT_WDF_DEVICE_D0_EXIT PowerExit;
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL Control;
-EVT_WDF_FILE_CLEANUP FileCleanup;
+EVT_WDF_FILE_CLOSE FileClose;
 
 static NTSTATUS Submit(DEVICE_CONTEXT *d,PBRB brb,ULONG size,ULONG timeout){
     /* Phase 2 note: synchronous BRBs are retained for the alpha path. An async
@@ -39,13 +42,22 @@ static NTSTATUS Submit(DEVICE_CONTEXT *d,PBRB brb,ULONG size,ULONG timeout){
 static void Indication(PVOID context,INDICATION_CODE code,PINDICATION_PARAMETERS parameters){
     CHANNEL *channel=(CHANNEL*)context;
     UNREFERENCED_PARAMETER(parameters);
+    if(code==IndicationAddReference){
+        WdfObjectReference(channel->device);
+        InterlockedIncrement(&channel->references);KeClearEvent(&channel->released);
+    }else if(code==IndicationReleaseReference){
+        WDFDEVICE device=channel->device;
+        if(InterlockedDecrement(&channel->references)==0)KeSetEvent(&channel->released,IO_NO_INCREMENT,FALSE);
+        WdfObjectDereference(device);
+    }
     if(code==IndicationRemoteDisconnect)InterlockedExchange(&channel->disconnected,1);
 }
-static void CloseChannel(DEVICE_CONTEXT *d,ULONG index){
+static NTSTATUS CloseChannel(DEVICE_CONTEXT *d,ULONG index){
     CHANNEL *channel=&d->channels[index];
     struct _BRB_L2CA_CLOSE_CHANNEL brb;
     NTSTATUS status;
-    if(!channel->handle || !d->ready)return;
+    if(!channel->handle)return STATUS_SUCCESS;
+    if(!d->ready)return STATUS_DEVICE_NOT_READY;
     RtlZeroMemory(&brb,sizeof(brb));
     d->profile.BthInitializeBrb((PBRB)&brb,BRB_L2CA_CLOSE_CHANNEL);
     brb.BtAddress=d->address; brb.ChannelHandle=channel->handle;
@@ -53,25 +65,36 @@ static void CloseChannel(DEVICE_CONTEXT *d,ULONG index){
     if(!NT_SUCCESS(status)){
         /* Retain the handle so a later cleanup retries; do not reuse this slot. */
         InterlockedExchange(&channel->disconnected,1);
-        return;
+        d->failed=TRUE;
+        XM5_TRACE_ERR("Channel close failed: %08lx",status);
+        return status;
     }
     channel->handle=NULL; channel->out_mtu=channel->in_mtu=0;
     InterlockedExchange(&channel->disconnected,1);
+    {
+        LARGE_INTEGER timeout;timeout.QuadPart=-30000000LL;
+        status=KeWaitForSingleObject(&channel->released,Executive,KernelMode,FALSE,&timeout);
+        if(status!=STATUS_SUCCESS){d->failed=TRUE;return STATUS_IO_TIMEOUT;}
+    }
+    return STATUS_SUCCESS;
 }
 static NTSTATUS OpenChannel(DEVICE_CONTEXT *d,ULONG index){
     CHANNEL *channel=&d->channels[index];
     struct _BRB_L2CA_OPEN_CHANNEL *brb;
     NTSTATUS status;
-    if(channel->handle)return STATUS_INVALID_DEVICE_STATE;
+    if(d->failed || channel->handle || InterlockedCompareExchange(&channel->references,0,0) ||
+       !KeReadStateEvent(&channel->released))return STATUS_INVALID_DEVICE_STATE;
     if(index==1 && (!d->channels[0].handle || d->channels[0].disconnected))return STATUS_INVALID_DEVICE_STATE;
     brb=(struct _BRB_L2CA_OPEN_CHANNEL*)d->profile.BthAllocateBrb(BRB_L2CA_OPEN_CHANNEL,'5mxL');
     if(!brb)return STATUS_INSUFFICIENT_RESOURCES;
-    brb->BtAddress=d->address; brb->Psm=0x19; brb->ChannelFlags=CF_ROLE_EITHER;
+    brb->BtAddress=d->address; brb->Psm=0x19;
+    brb->ChannelFlags=CF_ROLE_EITHER|CF_LINK_AUTHENTICATED|CF_LINK_ENCRYPTED;
     brb->ConfigOut.Flags=CFG_MTU;
     brb->ConfigOut.Mtu.Min=L2CAP_MIN_MTU;
     brb->ConfigOut.Mtu.Max=XM5_MAX_PACKET;
     brb->ConfigOut.Mtu.Preferred=1024;
-    brb->ConfigIn=brb->ConfigOut;
+    brb->ConfigIn.Flags=CFG_MTU;
+    brb->ConfigIn.Mtu=brb->ConfigOut.Mtu;
     brb->CallbackFlags=CALLBACK_DISCONNECT;
     brb->Callback=Indication; brb->CallbackContext=channel;
     brb->ReferenceObject=WdfDeviceWdmGetDeviceObject(d->device);
@@ -82,7 +105,8 @@ static NTSTATUS OpenChannel(DEVICE_CONTEXT *d,ULONG index){
         channel->handle=brb->ChannelHandle;
         channel->out_mtu=brb->OutResults.Params.Mtu;
         channel->in_mtu=brb->InResults.Params.Mtu;
-        if(channel->out_mtu>XM5_MAX_PACKET || channel->in_mtu>XM5_MAX_PACKET){
+        if(channel->out_mtu<L2CAP_MIN_MTU || channel->in_mtu<L2CAP_MIN_MTU ||
+           channel->out_mtu>XM5_MAX_PACKET || channel->in_mtu>XM5_MAX_PACKET){
             CloseChannel(d,index);status=STATUS_INVALID_BUFFER_SIZE;
         }
     }
@@ -102,14 +126,20 @@ static NTSTATUS Transfer(DEVICE_CONTEXT *d,XM5_PACKET *p,BOOLEAN receive){
     brb->TransferFlags=receive?(ACL_TRANSFER_DIRECTION_IN|ACL_SHORT_TRANSFER_OK|ACL_TRANSFER_TIMEOUT):ACL_TRANSFER_DIRECTION_OUT;
     brb->Timeout=p->timeout_ms;
     status=Submit(d,(PBRB)brb,sizeof(*brb),p->timeout_ms+1000);
-    if(NT_SUCCESS(status))p->size=brb->BufferSize;
+    if(NT_SUCCESS(status)){
+        if(brb->BufferSize>XM5_MAX_PACKET)status=STATUS_INVALID_BUFFER_SIZE;
+        else p->size=brb->BufferSize;
+    }
     d->profile.BthFreeBrb((PBRB)brb);return status;
 }
 VOID Control(WDFQUEUE queue,WDFREQUEST request,size_t out_length,size_t in_length,ULONG code){
     DEVICE_CONTEXT *d=Context(WdfIoQueueGetDevice(queue));
     NTSTATUS status=STATUS_INVALID_DEVICE_REQUEST; ULONG_PTR returned=0;
     XM5_CHANNEL *input,*output; XM5_PACKET *packet; XM5_INFO *info;
-    if(!d->ready){WdfRequestComplete(request,STATUS_DEVICE_NOT_READY);return;}
+    WdfWaitLockAcquire(d->lifecycle,NULL);
+    if(!d->ready || (d->failed && code!=XM5_IOCTL_CLOSE)){
+        WdfWaitLockRelease(d->lifecycle);WdfRequestComplete(request,STATUS_DEVICE_NOT_READY);return;
+    }
     if(code==XM5_IOCTL_INFO){
         status=WdfRequestRetrieveOutputBuffer(request,sizeof(*info),(PVOID*)&info,NULL);
         if(NT_SUCCESS(status)){RtlZeroMemory(info,sizeof(*info));info->version=XM5_ABI;info->address=d->address;returned=sizeof(*info);}
@@ -119,8 +149,9 @@ VOID Control(WDFQUEUE queue,WDFREQUEST request,size_t out_length,size_t in_lengt
             ULONG channel=input->channel;
             if(input->version!=XM5_ABI || channel>1)status=STATUS_INVALID_PARAMETER;
             else if(code==XM5_IOCTL_CLOSE){
-                if(channel==0)CloseChannel(d,1);
-                CloseChannel(d,channel);status=STATUS_SUCCESS;
+                NTSTATUS mediaStatus=channel==0?CloseChannel(d,1):STATUS_SUCCESS;
+                status=CloseChannel(d,channel);
+                if(!NT_SUCCESS(mediaStatus))status=mediaStatus;
             }else{
                 status=WdfRequestRetrieveOutputBuffer(request,sizeof(*output),(PVOID*)&output,NULL);
                 if(NT_SUCCESS(status)){
@@ -149,15 +180,24 @@ VOID Control(WDFQUEUE queue,WDFREQUEST request,size_t out_length,size_t in_lengt
             }
         }
     }
+    WdfWaitLockRelease(d->lifecycle);
     WdfRequestCompleteWithInformation(request,status,returned);
 }
-VOID FileCleanup(WDFFILEOBJECT file){
-    DEVICE_CONTEXT *d=Context(WdfFileObjectGetDevice(file));CloseChannel(d,1);CloseChannel(d,0);
+VOID FileClose(WDFFILEOBJECT file){
+    DEVICE_CONTEXT *d=Context(WdfFileObjectGetDevice(file));
+    // EvtFileClose runs after outstanding file requests have completed.
+    WdfWaitLockAcquire(d->lifecycle,NULL);
+    CloseChannel(d,1);CloseChannel(d,0);
+    WdfWaitLockRelease(d->lifecycle);
 }
-NTSTATUS Prepare(WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated){
+static NTSTATUS PrepareLocked(WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated){
     DEVICE_CONTEXT *d=Context(device); NTSTATUS status; BTH_DEVICE_INFO info;
     WDF_MEMORY_DESCRIPTOR output;
     UNREFERENCED_PARAMETER(raw);UNREFERENCED_PARAMETER(translated);
+    // Failed closes are terminal for this device instance. Never reuse handles
+    // from an earlier Bluetooth interface or power lifetime.
+    if(d->failed || d->channels[0].handle || d->channels[1].handle ||
+       d->channels[0].references || d->channels[1].references)return STATUS_DEVICE_NOT_READY;
     RtlZeroMemory(&d->profile,sizeof(d->profile));
     status=WdfFdoQueryForInterface(device,&GUID_BTHDDI_PROFILE_DRIVER_INTERFACE,(PINTERFACE)&d->profile,
         sizeof(d->profile),BTHDDI_PROFILE_DRIVER_INTERFACE_VERSION_FOR_QI,NULL);
@@ -170,26 +210,39 @@ NTSTATUS Prepare(WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated){
     }
     d->address=info.address;d->ready=TRUE;return STATUS_SUCCESS;
 }
+NTSTATUS Prepare(WDFDEVICE device,WDFCMRESLIST raw,WDFCMRESLIST translated){
+    NTSTATUS status;DEVICE_CONTEXT *d=Context(device);
+    WdfWaitLockAcquire(d->lifecycle,NULL);
+    status=PrepareLocked(device,raw,translated);
+    WdfWaitLockRelease(d->lifecycle);return status;
+}
 NTSTATUS Release(WDFDEVICE device,WDFCMRESLIST resources){
-    DEVICE_CONTEXT *d=Context(device);UNREFERENCED_PARAMETER(resources);
-    CloseChannel(d,1);CloseChannel(d,0);
+    DEVICE_CONTEXT *d=Context(device);NTSTATUS mediaStatus,status;UNREFERENCED_PARAMETER(resources);
+    WdfWaitLockAcquire(d->lifecycle,NULL);
+    mediaStatus=CloseChannel(d,1);status=CloseChannel(d,0);
     if(d->ready){d->ready=FALSE;d->profile.Interface.InterfaceDereference(d->profile.Interface.Context);}
-    return STATUS_SUCCESS;
+    RtlZeroMemory(&d->profile,sizeof(d->profile));
+    if(!NT_SUCCESS(mediaStatus))status=mediaStatus;
+    WdfWaitLockRelease(d->lifecycle);
+    return status;
 }
 NTSTATUS PowerExit(WDFDEVICE device,WDF_POWER_DEVICE_STATE target){
-    DEVICE_CONTEXT *d=Context(device);UNREFERENCED_PARAMETER(target);
-    CloseChannel(d,1);CloseChannel(d,0);return STATUS_SUCCESS;
+    DEVICE_CONTEXT *d=Context(device);NTSTATUS mediaStatus,status;UNREFERENCED_PARAMETER(target);
+    WdfWaitLockAcquire(d->lifecycle,NULL);
+    mediaStatus=CloseChannel(d,1);status=CloseChannel(d,0);
+    if(!NT_SUCCESS(mediaStatus))status=mediaStatus;
+    WdfWaitLockRelease(d->lifecycle);return status;
 }
 NTSTATUS AddDevice(WDFDRIVER driver,PWDFDEVICE_INIT init){
     WDFDEVICE device;WDF_OBJECT_ATTRIBUTES attr,file_attr;WDF_PNPPOWER_EVENT_CALLBACKS pnp;
     WDF_FILEOBJECT_CONFIG file;WDF_IO_QUEUE_CONFIG queue;NTSTATUS status;
     DECLARE_CONST_UNICODE_STRING(sddl,L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
     UNREFERENCED_PARAMETER(driver);
-    WdfDeviceInitSetCharacteristics(init,FILE_DEVICE_SECURE_OPEN,TRUE);
+    WdfDeviceInitSetCharacteristics(init,FILE_DEVICE_SECURE_OPEN|FILE_AUTOGENERATED_DEVICE_NAME,TRUE);
     WdfDeviceInitSetExclusive(init,TRUE);WdfDeviceInitSetDeviceType(init,FILE_DEVICE_UNKNOWN);
     status=WdfDeviceInitAssignSDDLString(init,&sddl);if(!NT_SUCCESS(status))return status;
-    WDF_FILEOBJECT_CONFIG_INIT(&file,NULL,NULL,FileCleanup);
-    WDF_OBJECT_ATTRIBUTES_INIT(&file_attr);file_attr.SynchronizationScope=WdfSynchronizationScopeInherit;
+    WDF_FILEOBJECT_CONFIG_INIT(&file,NULL,FileClose,NULL);
+    WDF_OBJECT_ATTRIBUTES_INIT(&file_attr);file_attr.SynchronizationScope=WdfSynchronizationScopeInheritFromParent;
     file_attr.ExecutionLevel=WdfExecutionLevelPassive;
     WdfDeviceInitSetFileObjectConfig(init,&file,&file_attr);
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnp);pnp.EvtDevicePrepareHardware=Prepare;
@@ -199,6 +252,12 @@ NTSTATUS AddDevice(WDFDRIVER driver,PWDFDEVICE_INIT init){
     attr.ExecutionLevel=WdfExecutionLevelPassive;attr.SynchronizationScope=WdfSynchronizationScopeDevice;
     status=WdfDeviceCreate(&init,&attr,&device);if(!NT_SUCCESS(status))return status;
     Context(device)->device=device;
+    WDF_OBJECT_ATTRIBUTES_INIT(&attr);attr.ParentObject=device;
+    status=WdfWaitLockCreate(&attr,&Context(device)->lifecycle);if(!NT_SUCCESS(status))return status;
+    for(ULONG i=0;i<2;++i){
+        Context(device)->channels[i].device=device;
+        KeInitializeEvent(&Context(device)->channels[i].released,NotificationEvent,TRUE);
+    }
     status=WdfDeviceCreateDeviceInterface(device,&GUID_DEVINTERFACE_XM5_LDAC,NULL);
     if(!NT_SUCCESS(status))return status;
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue,WdfIoQueueDispatchSequential);

@@ -1,20 +1,5 @@
-/* Lightweight trace stubs for Phase 4 ETW/WPP integration.
- * On a WDK build these can be replaced with WPP_INIT_TRACING / DoTraceMessage.
- * Keep macros side-effect free when tracing is disabled.
- */
+/* Kernel debugger errors only. ETW/WPP collection remains a Phase 4 gate. */
 #pragma once
-#ifndef XM5_TRACE_H
-#define XM5_TRACE_H
-
-#if defined(XM5_ENABLE_WPP)
-/* Placeholder: include generated WPP header when the provider is authored. */
 #define XM5_TRACE_INFO(msg, ...) ((void)0)
-#define XM5_TRACE_WARN(msg, ...) ((void)0)
-#define XM5_TRACE_ERR(msg, ...)  ((void)0)
-#else
-#define XM5_TRACE_INFO(msg, ...) ((void)0)
-#define XM5_TRACE_WARN(msg, ...) ((void)0)
-#define XM5_TRACE_ERR(msg, ...)  ((void)0)
-#endif
-
-#endif
+#define XM5_TRACE_WARN(msg, ...) DbgPrintEx(DPFLTR_IHVDRIVER_ID,DPFLTR_WARNING_LEVEL,"xm5ldac: " msg "\n",__VA_ARGS__)
+#define XM5_TRACE_ERR(msg, ...) DbgPrintEx(DPFLTR_IHVDRIVER_ID,DPFLTR_ERROR_LEVEL,"xm5ldac: " msg "\n",__VA_ARGS__)

@@ -6,6 +6,7 @@ namespace xm5 {
 struct AdaptiveSample {
     unsigned send_ms=0;
     size_t queue_bytes=0;
+    unsigned elapsed_ms=100;
 };
 class AdaptiveController {
     int quality_;
@@ -25,11 +26,11 @@ public:
     bool observe(const AdaptiveSample& sample){
         const bool congested=sample.send_ms>=send_soft_ms_ || sample.queue_bytes>=queue_soft_limit_;
         if(congested){
-            harden_=0;++soften_;
-            if(soften_>=3 && quality_<LDACBT_EQMID_MQ){++quality_;soften_=0;return true;}
+            harden_=0;soften_=std::min(300u,soften_+std::min(sample.elapsed_ms,300u));
+            if(soften_>=300 && quality_<LDACBT_EQMID_MQ){++quality_;soften_=0;return true;}
         }else{
-            soften_=0;++harden_;
-            if(harden_>=12 && quality_>LDACBT_EQMID_HQ){--quality_;harden_=0;return true;}
+            soften_=0;harden_=std::min(1200u,harden_+std::min(sample.elapsed_ms,1200u));
+            if(harden_>=1200 && quality_>LDACBT_EQMID_HQ){--quality_;harden_=0;return true;}
         }
         return false;
     }

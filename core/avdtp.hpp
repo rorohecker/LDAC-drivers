@@ -4,9 +4,13 @@
 #include <stdexcept>
 #include <optional>
 #include <string>
+#include <functional>
 namespace xm5 {
 using Bytes=std::vector<uint8_t>;
 struct Error:std::runtime_error { using std::runtime_error::runtime_error; };
+struct Timeout:Error { using Error::Error; };
+struct Cancelled:Error { using Error::Error; };
+struct StreamInterrupted:Error { using Error::Error; };
 struct Message { uint8_t label=0,type=0,signal=0; Bytes body; };
 class Reassembler {
     Message message_; unsigned remaining_=0;
@@ -20,7 +24,8 @@ bool supports_ldac_48_stereo(const Bytes& capabilities);
 Bytes ldac_configuration();
 Bytes command(uint8_t label,uint8_t signal,const Bytes& body={});
 Bytes accept_response(uint8_t label,uint8_t signal,const Bytes& body={});
-Bytes reject_response(uint8_t label,uint8_t signal,uint8_t error_code);
+Bytes reject_response(uint8_t label,uint8_t signal,uint8_t error_code,uint8_t detail=0);
+Bytes general_reject(uint8_t label,uint8_t signal);
 Bytes media_packet(const Bytes& encoded,uint8_t frames,uint16_t sequence,
                    uint32_t timestamp,uint32_t ssrc,uint16_t mtu);
 class Transport {
@@ -30,20 +35,21 @@ public:
     virtual void send(unsigned channel,const Bytes& packet)=0;
     virtual Bytes receive(unsigned channel,unsigned timeout_ms)=0;
     virtual void close(unsigned channel) noexcept=0;
+    virtual void cancel() noexcept {}
 };
 enum class State { idle, signaling, configured, open, streaming, suspended };
 class Session {
     Transport& transport_; uint8_t label_=0,seid_=0; State state_=State::idle;
     Reassembler inbound_;
+    std::function<bool()> cancelled_;
     Bytes transact(uint8_t signal,const Bytes& body={});
     void handle_peer(const Message& message);
     void reply_accept(uint8_t label,uint8_t signal,const Bytes& body={});
-    void reply_reject(uint8_t label,uint8_t signal,uint8_t error_code);
+    void reply_reject(uint8_t label,uint8_t signal,uint8_t error_code,uint8_t detail=0);
     void teardown_channels() noexcept;
     bool peer_targets_local(const Bytes& body) const;
-    bool peer_targets_remote(const Bytes& body) const;
 public:
-    explicit Session(Transport& t):transport_(t){}
+    explicit Session(Transport& t,std::function<bool()> cancelled={}):transport_(t),cancelled_(std::move(cancelled)){}
     ~Session(){ stop(); }
     Session(const Session&)=delete; Session& operator=(const Session&)=delete;
     uint16_t start();

@@ -20,9 +20,9 @@ CatalogFile=xm5ldac.cat
 PnpLockdown=1
 
 [Manufacturer]
-%Provider%=Models,NTamd64.10.0
+%Provider%=Models,NTamd64.10.0...22000
 
-[Models.NTamd64.10.0]
+[Models.NTamd64.10.0...22000]
 %Description%=Install,__HEADPHONE_SERVICE_HARDWARE_ID__
 
 [Install.NT]

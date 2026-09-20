@@ -1,6 +1,6 @@
 # XM5 LDAC driver project — first implementation
 
-This is development source, not a working driver release. It now contains a Windows Bluetooth transport driver and a live-streaming client in addition to the tested encoder. The Windows components have not been compiled or run here. Installing the source archive does not enable LDAC.
+This is experimental development source, not a working driver release. The Windows client and KMDF driver build on the G16 with MSVC and the WDK. Offline codec/protocol tests pass; driver loading and audible XM5 playback remain unverified. Installing the source archive does not enable LDAC. See [the audit and repair status](DRIVER_AUDIT.md).
 
 Target: Sony WH-1000XM5, ASUS ROG Zephyrus G16 (2025), Intel Wireless Bluetooth, Windows 11 Home 25H2 build 26200.9168. The screenshots establish these names but do not identify the exact Bluetooth service hardware ID or establish compatibility with this driver.
 
@@ -39,10 +39,10 @@ build\Debug\xm5_stream.exe --address AA:BB:CC:DD:EE:FF --file short.s16le sq --a
 |---|---|---|
 | LDAC encoder | Sony encoder, 48 kHz / 16-bit / stereo, HQ/SQ/MQ, partial blocks and drain | Compiled and integration-tested on Linux |
 | AVDTP source | Discover→Start plus peer Suspend/Close/Abort/Discover/GetCaps responder and `pump` | Fake-peer negotiation, peer-command, and failure tests |
-| Adaptive / reconnect | EQMID congestion backoff; Start retry supervisor | Unit tests; Windows flags `--adaptive` `--reconnect` |
+| Adaptive / reconnect | Duration-weighted EQMID congestion backoff; complete-session retry | Unit tests; Windows flags `--adaptive` `--reconnect`; live recovery unverified |
 | WAV input | 48 kHz stereo PCM WAV demux | Unit test + `--wav` |
-| KMDF transport | Two L2CAP channels, packet send/receive, IOCTL validation, exclusive administrator access, disconnect notification and cleanup paths | Source reviewed against Microsoft interfaces; WDK compile and runtime checks pending |
-| Windows streaming client | PCM/WAV file input, packet pacing, signaling pump, bounded WASAPI capture queue, Ctrl+C shutdown | Source only; Windows compile and runtime checks pending |
+| KMDF transport | Two L2CAP channels, packet send/receive, IOCTL validation, exclusive administrator access, callback references and failed-close quarantine | WDK compile/static analysis pass; runtime and Verifier pending |
+| Windows streaming client | Bounded PCM/WAV reads, timer pacing, signaling pump, synchronized WASAPI capture queue, Ctrl+C shutdown | Windows compile and user-mode regressions pass; live audio pending |
 | Windows playback endpoint | Not implemented | Loopback/file paths only — see `docs/wasapi-endpoint.md` |
 
 ## Build on the G16
@@ -63,7 +63,11 @@ To also attempt the kernel driver compile with the WDK installed:
 .\tools\build.ps1 -IncludeDriver
 ```
 
-The current WDK project targets x64 and KMDF 1.33. Its toolset selection needs validation against the installed WDK. No signed driver or catalog is included. The CMake configuration and PowerShell script were not executed here because this environment has neither CMake nor Windows tools; direct GCC/G++ builds were used for the portable tests.
+The WDK project targets Windows 11 x64 (build 22000 or later) and KMDF 1.33. The build helper selects the newest installed matching SDK/WDK headers; use `-WindowsTargetPlatformVersion 10.0.26100.0` to select another installed kit. WDK Visual Studio integration is also required. No signed driver, catalog, test certificate, hardware report, or personal build log is published.
+
+`xm5_stream --help` describes the client options. `--reconnect` retries transport creation, negotiation, and streaming failures with bounded backoff; it restarts files from the beginning and reopens the default capture endpoint. Capture samples queued during peer Suspend are discarded. Discontinuities reset the session when reconnect is enabled. This is recovery behavior, not seamless audio or clock-drift compensation.
+
+For user-mode memory checks, configure a separate build with `cmake -S . -B build/asan -A x64 -DXM5_ASAN=ON`, build `RelWithDebInfo`, then run CTest in that directory. MSVC AddressSanitizer and its runtime must be installed. These tests do not load the kernel driver.
 
 If PowerShell policy prevents the script from running, the equivalent user-mode commands in a Visual Studio developer terminal are:
 

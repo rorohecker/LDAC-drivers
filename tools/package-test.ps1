@@ -24,11 +24,23 @@ if ((Get-Content -Raw $InfPath) -match '__HEADPHONE_SERVICE_HARDWARE_ID__') {
     throw 'INF still contains the placeholder. Run generate-inf.ps1 with a real HardwareId.'
 }
 if (!(Test-Path $client)) {
-    Write-Warning "xm5_stream.exe not found at $client — package will omit the client."
+    Write-Warning "xm5_stream.exe not found at $client - package will omit the client."
 }
 
-if (Test-Path $PackageDir) { Remove-Item $PackageDir -Recurse -Force }
-New-Item -ItemType Directory -Path $PackageDir | Out-Null
+$PackageDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($PackageDir)
+$packageRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'package')).TrimEnd('\') + '\'
+if (-not $PackageDir.StartsWith($packageRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "PackageDir must be a subdirectory of $packageRoot"
+}
+# Do not recursively remove an arbitrary caller-provided directory. Replace only
+# the package files this helper owns, leaving any unrelated files untouched.
+New-Item -ItemType Directory -Path $PackageDir -Force | Out-Null
+foreach ($name in @('xm5ldac.sys', 'xm5ldac.inf', 'xm5ldac.cat', 'xm5_stream.exe', 'LICENSE.libldac', 'NOTICE.libldac', 'README.txt')) {
+    $packageFile = Join-Path $PackageDir $name
+    if (Test-Path -LiteralPath $packageFile -PathType Leaf) {
+        Remove-Item -LiteralPath $packageFile -Force
+    }
+}
 
 Copy-Item $sys (Join-Path $PackageDir 'xm5ldac.sys')
 Copy-Item $InfPath (Join-Path $PackageDir 'xm5ldac.inf')

@@ -46,7 +46,7 @@ void Capture::run(const std::atomic_bool& stop,const std::function<void(const By
             }catch(...){capture_->ReleaseBuffer(frames);throw;}
             check(capture_->ReleaseBuffer(frames),"Release capture buffer");
             if(!first_packet && (flags&AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY))
-                throw Error("Audio discontinuity; restart the session to reset LDAC timing");
+                throw StreamInterrupted("Audio discontinuity; restart the session to reset LDAC timing");
             first_packet=false;
             consume(pcm);
             check(capture_->GetNextPacketSize(&pending),"Capture packet size");

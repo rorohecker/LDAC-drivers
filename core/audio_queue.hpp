@@ -14,11 +14,13 @@ public:
     size_t bytes()const{return bytes_;}
     size_t limit()const{return limit_;}
     bool empty()const{return queue_.empty();}
+    void clear()noexcept{queue_.clear();bytes_=0;}
     void push(Bytes block){
         if(block.empty())return;
-        if(bytes_+block.size()>limit_)throw Error("Audio queue exceeded limit");
-        bytes_+=block.size();
+        if(block.size()>limit_-bytes_)throw StreamInterrupted("Audio queue exceeded its latency budget; restart capture timing");
+        auto size=block.size();
         queue_.push_back(std::move(block));
+        bytes_+=size;
     }
     Bytes pop(){
         if(queue_.empty())throw Error("AudioQueue empty");

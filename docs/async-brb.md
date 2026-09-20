@@ -14,4 +14,16 @@
 
 ## Interim policy
 
+The audit repair adds a lifecycle wait lock, device references for Bluetooth
+callback lifetime, release-notification waits before channel reuse, and a terminal
+failed-close flag. CLOSE now returns the lower failure instead of reporting success.
+File close runs after outstanding file requests complete. The profile interface is
+cleared at Release; a failed instance cannot reopen old handles on Prepare.
+
+These are mitigations to the synchronous implementation, not completion of this
+async design. The queue still serializes signaling reads and media writes, and
+user cancellation remains bounded by synchronous lower-request timeouts. Callback
+ordering, PnP removal, power transitions, and failed-close recovery need hardware
+fault injection and Driver Verifier. A failed instance may need device re-enumeration.
+
 Keep sync Submit for internal alpha. Do not claim cancel/remove/power safety until this design is implemented and Verifier-clean on Windows.
