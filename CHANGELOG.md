@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Version numbers follow 
 
 ## Unreleased
 
+### Setup and release checks
+
+- Add a guided dedicated-USB setup helper that requires a physically confirmed
+  external adapter and verifies the pinned upstream installer hash before launch.
+- Make the Microsoft-signed package installer reject multiple matching present
+  devices and report a staged-but-unbound package as a failed installation.
+- Recheck the built-in Intel BE201 route and record the remaining live driver,
+  endpoint, signing, and hardware playback gates before an installable release.
+
 ### Windows LDAC path development
 
 - Add a read-only dedicated USB adapter and bridge readiness inventory plus an XM5

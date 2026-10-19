@@ -6,6 +6,8 @@ For a route that keeps normal Windows security settings, read the [Windows LDAC 
 
 Both development tracks are active: the [dedicated USB adapter trial](docs/bridge-trial.md) provides the first practical XM5 playback gate, while the existing KMDF source targets a future Microsoft-signed built-in-radio path. `tools/bridge-readiness.ps1` only inventories hardware and boot state. `tools/install-signed.ps1` validates a Microsoft-signed package without installing it unless explicitly passed `-Install`. Its preflight requires an elevated shell to verify boot security; no such signed package is currently supplied.
 
+For a separate USB Bluetooth adapter, run `.\tools\setup-usb.ps1` to list candidates. After physically identifying the dongle, pass its exact instance ID with `-AdapterInstanceId` and `-ConfirmExternalAdapter`; add `-InstallBridge` to download, hash-check, and launch the pinned official A2DP Windows Bridge installer. The bridge app then handles WinUSB assignment, firmware, and pairing. This helper never reassigns the laptop's Intel radio. This machine currently has no separate USB Bluetooth adapter. Its Intel Wi-Fi 7 BE201 radio is newer than the Intel models supported by the bridge's current setup guide; the built-in path remains the experimental KMDF track.
+
 Target: Sony WH-1000XM5, ASUS ROG Zephyrus G16 (2025), Intel Wireless Bluetooth, Windows 11 Home 25H2 build 26200.9168. A read-only PnP check found one present WH-1000XM5 Audio Sink service with hardware ID `BTHENUM\{0000110b-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&0df0`; its current service is `BthA2dp`. This identifies an INF binding candidate, but does not establish compatibility with this driver or authorize replacement of the inbox profile.
 
 ## Production roadmap

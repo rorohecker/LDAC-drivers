@@ -5,8 +5,8 @@ This is the first hardware gate for the normal-security Windows path. [A2DP Wind
 ## Prepare
 
 1. Keep the built-in Intel Bluetooth radio assigned to Windows. Physically identify a separate USB Bluetooth adapter before selecting it in the bridge.
-2. If local PowerShell policy allows scripts, run `./tools/bridge-readiness.ps1` to inventory USB devices and boot security. The script is read-only. Use `-AdapterInstanceId '<external USB instance ID>'` after identifying the separate adapter. A USB instance ID alone does not prove an adapter is external.
-3. Obtain the bridge from its [official repository](https://github.com/SeiyaFunaokaJP/A2DP-Windows-Bridge), then use its [setup instructions](https://seiyafunaokajp.github.io/A2DP-Windows-Bridge/setup). Its elevated helper assigns Microsoft's signed WinUSB driver to the **external** adapter; the app offers a restore action. Do not assign WinUSB to the built-in radio.
+2. Run `./tools/setup-usb.ps1` to inventory USB adapter candidates. The helper lists no candidate on the current G16 because only its built-in Intel radio is present. After physically identifying a separate dongle, run `./tools/setup-usb.ps1 -AdapterInstanceId '<external USB instance ID>' -ConfirmExternalAdapter -InstallBridge`. This downloads and SHA-256 checks the pinned official A2DP Windows Bridge v2.0.0-alpha.1 installer, then launches it interactively. The script never assigns a device driver itself. The upstream version is a prerelease and its XM5 behavior still needs testing.
+3. In the bridge app, follow its [official setup instructions](https://seiyafunaokajp.github.io/A2DP-Windows-Bridge/setup). Its elevated helper assigns Microsoft's signed WinUSB driver to the **external** adapter; the app offers a restore action. Do not assign WinUSB to the built-in radio.
 4. Pair the XM5 with the bridge on that adapter. Use a 48 kHz Windows playback format for the initial test. Begin with LDAC SQ (660 kbps) and system loopback capture.
 
 ## Record the result
