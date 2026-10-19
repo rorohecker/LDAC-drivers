@@ -15,3 +15,5 @@ hw.json
 LOCAL_PHASE01_CHECKLIST.md
 *.pdb
 *.ilk
+__pycache__/
+*.pyc

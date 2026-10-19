@@ -12,6 +12,8 @@ Peer Suspend/Abort/Close/Discover/GetCapabilities (and related) are handled by `
 
 The selected configuration remains 48 kHz stereo LDAC with the basic media transport and codec categories. Content protection, delay reporting, reporting/recovery services, codec renegotiation, and other sample rates are not implemented. No claim of Bluetooth qualification or full A2DP/AVDTP conformance is made. Live headset confirmation of LDAC framing remains a Phase 1 hardware gate.
 
+The offline `ldac_encode` diagnostic now exercises libldac at 44.1/48/88.2/96 kHz with signed 16/24/32-bit stereo PCM. These formats are not yet exposed by the live client or AVDTP configuration, and offline success does not establish headset compatibility.
+
 ## Audio experience
 
 File, WAV, and WASAPI loopback paths exist. Adaptive EQMID and a bounded capture queue are implemented. There is still no dedicated Windows playback device (`docs/wasapi-endpoint.md`). Loopback uses the startup default endpoint and may also play locally. No endpoint hot-swap, automatic muting, mixer UI, microphone routing, AVRCP controls, multipoint coordination, or volume synchronization is implemented.

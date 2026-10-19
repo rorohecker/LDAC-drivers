@@ -1,6 +1,6 @@
-# Phase 0 status — Buildable and bindable
+# Phase 0 status — Legacy test-signing lab
 
-See `PRODUCTION_PLAN.md` for the full multi-phase plan. This file is the working checklist for **Phase 0 only**.
+See `PRODUCTION_PLAN.md` for the full multi-phase plan. This file records the legacy **Phase 0 test-signing lab**. It is not the current normal-security installation path; use `docs/windows-ldac-paths.md` and the signed-package preflight for that path.
 
 ## Goal
 
@@ -34,7 +34,7 @@ Copy this checklist and tick locally:
 - [ ] **P0-6** `.\tools\generate-inf.ps1 -HardwareId '<id from resolve>'`
 - [ ] **P0-7** `.\tools\package-test.ps1 -Configuration Debug`
 - [ ] **P0-8** Elevated: `.\tools\sign-test.ps1 -PackageDir package\test`
-- [ ] **P0-9** Elevated: `.\tools\install-test.ps1 -PackageDir package\test` (enables testsigning; reboot if prompted)
+- [ ] **P0-9 (legacy lab only)** Elevated: `.\tools\install-test.ps1 -PackageDir package\test -AllowTestSigningLab` (enables testsigning; reboot if prompted)
 - [ ] **P0-10** Confirm device interface present; `.\tools\smoke-info.ps1 -Address AA:BB:CC:DD:EE:FF`
 - [ ] **P0-11** Elevated: `.\tools\uninstall-test.ps1` restores prior binding; reboot if needed
 

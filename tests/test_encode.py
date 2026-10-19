@@ -5,9 +5,13 @@ import struct
 import subprocess
 import sys
 import tempfile
+if not __debug__:
+    raise RuntimeError("Run encoder tests without Python optimization so assertions execute.")
 exe = str(Path(sys.argv[1]).resolve())
-def run(source, output, quality="hq", success=True):
-    p = subprocess.run([exe, str(source), str(output), quality], capture_output=True)
+help_result = subprocess.run([exe, "--help"], capture_output=True, text=True)
+assert help_result.returncode == 0 and "packed 3-byte" in help_result.stdout
+def run(source, output, quality="hq", success=True, options=()):
+    p = subprocess.run([exe, str(source), str(output), quality, *options], capture_output=True)
     assert (p.returncode == 0) == success, p.stderr.decode()
 def records(path):
     data = path.read_bytes()
@@ -33,6 +37,27 @@ with tempfile.TemporaryDirectory() as temp:
         assert records(out)>=375
         sizes.append(out.stat().st_size)
     assert sizes[0]>sizes[1]>sizes[2],sizes
+
+    # Exercise the sample-rate and PCM-depth combinations from libldac's API.
+    # These records verify offline encoding only; no headset negotiation is implied.
+    rate_payloads={}
+    for rate in (44100, 48000, 88200, 96000):
+        depth_payloads=[]
+        for bits in (16, 24, 32):
+            width=bits//8
+            value=(1 << (bits-4)) - 1
+            frame=value.to_bytes(width,"little",signed=True)*2
+            matrix_input=root/f"matrix-{rate}-{bits}.pcm"
+            matrix_input.write_bytes(frame*2048)
+            matrix_output=root/f"matrix-{rate}-{bits}.ldacdiag"
+            run(matrix_input,matrix_output,"sq",options=("--rate",str(rate),"--format",f"s{bits}"))
+            assert records(matrix_output)==(17 if rate<=48000 else 9),(rate,bits)
+            depth_payloads.append(matrix_output.read_bytes())
+        # The three PCM depths must produce the same packet count and bitrate
+        # mode. Their payloads can differ at the lowest quantization bits.
+        assert len({len(data) for data in depth_payloads})==1,rate
+        rate_payloads[rate]=depth_payloads[0]
+    assert len(set(rate_payloads.values()))==4
     for length in [0,4,508,512,516]:
         short=root/"short.pcm"
         short.write_bytes(bytes(length))
@@ -44,6 +69,13 @@ with tempfile.TemporaryDirectory() as temp:
     run(invalid,root/"bad.ldacdiag",success=False)
     assert not (root/"bad.ldacdiag").exists()
     run(source,root/"bad-quality.ldacdiag","invalid",success=False)
+    run(source,root/"bad-rate.ldacdiag",options=("--rate","32000"),success=False)
+    run(source,root/"bad-rate-format.ldacdiag",options=("--rate","+48000"),success=False)
+    run(source,root/"bad-format.ldacdiag",options=("--format","f32"),success=False)
+    run(source,root/"duplicate-rate.ldacdiag",options=("--rate","48000","--rate","96000"),success=False)
+    short_24=root/"bad-s24.pcm"
+    short_24.write_bytes(bytes(5))
+    run(short_24,root/"bad-s24.ldacdiag",options=("--format","s24"),success=False)
     before=source.read_bytes()
     run(source,source,success=False)
     assert source.read_bytes()==before
@@ -51,5 +83,5 @@ with tempfile.TemporaryDirectory() as temp:
     existing.write_bytes(b"preserve")
     run(source,existing,success=False)
     assert existing.read_bytes()==b"preserve"
-    print("PASS: HQ/SQ/MQ encoding; records; partial/empty input; malformed input; output protection.")
+    print("PASS: HQ/SQ/MQ encoding; 4 sample rates x 3 PCM formats; partial/empty input; malformed input; output protection.")
     print("One-second diagnostic sizes (HQ, SQ, MQ):",sizes)

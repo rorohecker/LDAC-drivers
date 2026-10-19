@@ -1,5 +1,25 @@
 # Verification performed in this environment
 
+## 2026-10-18 review of the Windows LDAC path changes
+
+- The portable core compiled with Zig C++ using `-Wall -Wextra -Wpedantic -Werror`
+  and passed 3,748 checks, including LDAC capability flags.
+- The offline encoder compiled with Zig C using the same warning flags and passed
+  HQ/SQ/MQ, four sample rates by three packed PCM depths, input and output
+  protection, and help/invalid-option checks.
+- All 12 PowerShell scripts parsed without syntax errors. The signed-installer
+  INF patterns accepted the local template and rejected an added model section;
+  boot-option patterns rejected enabled or unrecognized integrity settings.
+  A read-only query found one
+  present WH-1000XM5 Audio Sink service with a qualified VID/PID hardware ID
+  currently bound to `BthA2dp`. No driver was installed or rebound.
+- PowerShell execution policy is `Restricted`, so script runtime tests could not
+  run. CMake and MSBuild are not currently available on this environment; the
+  Windows client and KMDF source changes were not rebuilt in this review.
+
+The result does not establish audible XM5 playback, driver installation, or
+Microsoft package signing.
+
 Date: 2026-09-10. Platform: Linux, GCC/G++. Windows build and hardware tests: not performed.
 
 ## Portable protocol and real encoder

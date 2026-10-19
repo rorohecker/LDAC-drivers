@@ -20,6 +20,11 @@ public:
 };
 struct Endpoint { uint8_t seid; bool in_use, sink; uint8_t media; };
 std::vector<Endpoint> endpoints(const Bytes& bytes);
+struct LdacCapabilities {
+    uint8_t sample_rates=0;
+    uint8_t channel_modes=0;
+};
+std::optional<LdacCapabilities> ldac_capabilities(const Bytes& capabilities);
 bool supports_ldac_48_stereo(const Bytes& capabilities);
 Bytes ldac_configuration();
 Bytes command(uint8_t label,uint8_t signal,const Bytes& body={});

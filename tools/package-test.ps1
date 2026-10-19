@@ -54,7 +54,7 @@ Generated: $(Get-Date -Format o)
 
 Install (elevated PowerShell, from repo root):
   .\tools\sign-test.ps1 -PackageDir '$PackageDir'
-  .\tools\install-test.ps1 -PackageDir '$PackageDir'
+  .\tools\install-test.ps1 -PackageDir '$PackageDir' -AllowTestSigningLab
 
 Smoke:
   .\tools\smoke-info.ps1 -Address AA:BB:CC:DD:EE:FF
@@ -62,7 +62,7 @@ Smoke:
 Uninstall:
   .\tools\uninstall-test.ps1
 
-This package is not production-signed. Testsigning must be enabled.
+This package is not production-signed. The install helper refuses to run without explicit lab opt-in. Do not use this package for the normal-security Windows path.
 "@
 Set-Content -Path (Join-Path $PackageDir 'README.txt') -Value $readme -Encoding utf8
 

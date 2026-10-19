@@ -8,6 +8,7 @@ constexpr uint8_t kErrBadState=0x31;
 constexpr uint8_t kErrBadSeid=0x12;
 constexpr uint8_t kErrBadLength=0x11;
 constexpr uint8_t kErrUnsupported=0x19;
+constexpr uint8_t kLdacSignature[]={0,0xff,0x2d,1,0,0,0xaa,0};
 }
 std::optional<Message> Reassembler::push(const Bytes& p) {
     auto fail=[&](const char* s)->std::optional<Message>{reset();throw Error(s);};
@@ -44,8 +45,9 @@ std::vector<Endpoint> endpoints(const Bytes& b){
     }
     return result;
 }
-bool supports_ldac_48_stereo(const Bytes& b){
-    bool codec=false,transport=false; unsigned seen=0;
+std::optional<LdacCapabilities> ldac_capabilities(const Bytes& b){
+    std::optional<LdacCapabilities> codec;
+    bool transport=false; unsigned seen=0;
     for(size_t i=0;i<b.size();){
         if(b.size()-i<2)throw Error("Truncated capability header");
         unsigned category=b[i],length=b[i+1]; i+=2;
@@ -54,13 +56,18 @@ bool supports_ldac_48_stereo(const Bytes& b){
         if(category==7){
             if(++seen!=1 || length<2)throw Error("Invalid codec capability");
             // Audio / vendor codec / Sony vendor ID 0x0000012d / LDAC codec 0x00aa.
-            const Bytes signature={0,0xff,0x2d,1,0,0,0xaa,0};
-            if(length==10 && std::equal(signature.begin(),signature.end(),b.begin()+i))
-                codec=(b[i+8]&0x10) && (b[i+9]&1);
+            if(length==10 && std::equal(kLdacSignature,
+                kLdacSignature+sizeof(kLdacSignature),b.begin()+i))
+                codec=LdacCapabilities{uint8_t(b[i+8]&0x3f),uint8_t(b[i+9]&0x07)};
         }
         i+=length;
     }
-    return transport && codec;
+    if(!transport)return {};
+    return codec;
+}
+bool supports_ldac_48_stereo(const Bytes& b){
+    auto caps=ldac_capabilities(b);
+    return caps && (caps->sample_rates&0x10) && (caps->channel_modes&0x01);
 }
 Bytes ldac_configuration(){return {1,0,7,10,0,0xff,0x2d,1,0,0,0xaa,0,0x10,1};}
 Bytes command(uint8_t label,uint8_t signal,const Bytes& body){

@@ -71,4 +71,4 @@ try {
 }
 
 Write-Output 'Test signing complete.'
-Write-Output "Next: .\tools\install-test.ps1 -PackageDir '$PackageDir'"
+Write-Output 'This test-signed package is for an explicitly opted-in lab, not the normal-security Windows path. See docs/windows-ldac-paths.md.'

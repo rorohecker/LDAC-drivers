@@ -1,6 +1,8 @@
 # Production plan — XM5 LDAC driver
 
-This document is the authoritative phase plan. Complete each phase’s exit criteria before starting the next. `PHASE0.md` tracks the current phase in detail.
+This document is the phase plan for the experimental KMDF profile-driver track. Complete each phase’s exit criteria before starting the next. `PHASE0.md` tracks the current phase in detail.
+
+**Security-path update (2026-10-18):** The Phase 0 test-install track below enables Windows `TESTSIGNING` through `tools/install-test.ps1` and is a legacy lab track. It does not meet a requirement to retain normal Windows security settings. Use the [Windows LDAC architecture review](docs/windows-ldac-paths.md) for the dedicated-adapter, Microsoft-signed WinUSB path and the separate Microsoft-signing requirements for any kernel release.
 
 ## Product goals (choose explicitly)
 
@@ -10,7 +12,7 @@ This document is the authoritative phase plan. Complete each phase’s exit crit
 | Usable beta | Dedicated endpoint path, reconnect, soak listening | Through Phase 3 |
 | Consumer production | Signed package, compliance, CI, support matrix | Through Phase 5 |
 
-Default working goal until changed: **internal alpha**, then reassess.
+Current working goal: **XM5 LDAC on Windows with normal code integrity and Secure Boot**. First validate the dedicated USB adapter and user-mode bridge path. Develop the built-in Intel path in parallel, but install its kernel driver only after exact binding, Microsoft signing, and driver validation. The test-signed Phase 0 checklist below is retained as a legacy lab record, not an exit gate for the current goal.
 
 **Status snapshot (software):** Phase 0 tooling done; Phases 2–3 portable protocol/audio policy done and Linux-tested; Phases 4–5 docs/CI process done. **Phase 0–1 hardware exit and Phase 2 async-BRB Verifier remain blocked on the G16.**
 
@@ -18,7 +20,7 @@ Default working goal until changed: **internal alpha**, then reassess.
 
 ## Phase 0 — Buildable and bindable
 
-**Purpose:** Produce a loadable, test-signed, correctly bound driver package on the target PC without claiming audio works.
+**Legacy lab purpose:** Produce a loadable, test-signed, correctly bound driver package on the target PC without claiming audio works. For the current normal-security goal, replace P0-8/P0-9 with Microsoft dashboard signing and the default preflight of `tools/install-signed.ps1` after the real XM5 service binding is confirmed.
 
 ### Work items
 
@@ -32,7 +34,7 @@ Default working goal until changed: **internal alpha**, then reassess.
 | P0-6 | Generate INF from template | Either | `tools/generate-inf.ps1` |
 | P0-7 | Assemble test package | Either | `tools/package-test.ps1` |
 | P0-8 | Create/import test certificate + sign | Hardware | `tools/sign-test.ps1` |
-| P0-9 | Enable testsigning boot + install | Hardware | `tools/install-test.ps1` |
+| P0-9 | Enable testsigning boot + install (legacy lab only) | Hardware | `tools/install-test.ps1 -AllowTestSigningLab` |
 | P0-10 | Smoke: load, interface present, unload | Hardware | No BSOD; address readable |
 | P0-11 | Document rollback / uninstall | Repo | `tools/uninstall-test.ps1` |
 | P0-12 | Portable core CI (Linux sanitizers) | Repo | GitHub Actions |

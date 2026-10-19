@@ -1,9 +1,14 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$PackageDir,
+    [switch]$AllowTestSigningLab,
     [switch]$SkipTestSigningEnable
 )
 $ErrorActionPreference = 'Stop'
+
+if (-not $AllowTestSigningLab) {
+    throw 'Refusing test-driver installation: this helper enables TESTSIGNING and imports a self-signed root. It is for an explicitly opted-in lab only. See docs/windows-ldac-paths.md for the normal-security development path.'
+}
 
 function Test-IsAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()

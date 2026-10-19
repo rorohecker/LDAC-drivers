@@ -2,7 +2,11 @@
 
 This is experimental development source, not a working driver release. The Windows client and KMDF driver build on the G16 with MSVC and the WDK. Offline codec/protocol tests pass; driver loading and audible XM5 playback remain unverified. Installing the source archive does not enable LDAC. See [the audit and repair status](DRIVER_AUDIT.md).
 
-Target: Sony WH-1000XM5, ASUS ROG Zephyrus G16 (2025), Intel Wireless Bluetooth, Windows 11 Home 25H2 build 26200.9168. The screenshots establish these names but do not identify the exact Bluetooth service hardware ID or establish compatibility with this driver.
+For a route that keeps normal Windows security settings, read the [Windows LDAC architecture review](docs/windows-ldac-paths.md) before using the Phase 0 commands below. The existing `install-test.ps1` is a legacy development helper that enables `TESTSIGNING` and imports a self-signed root certificate; it is not part of that route.
+
+Both development tracks are active: the [dedicated USB adapter trial](docs/bridge-trial.md) provides the first practical XM5 playback gate, while the existing KMDF source targets a future Microsoft-signed built-in-radio path. `tools/bridge-readiness.ps1` only inventories hardware and boot state. `tools/install-signed.ps1` validates a Microsoft-signed package without installing it unless explicitly passed `-Install`. Its preflight requires an elevated shell to verify boot security; no such signed package is currently supplied.
+
+Target: Sony WH-1000XM5, ASUS ROG Zephyrus G16 (2025), Intel Wireless Bluetooth, Windows 11 Home 25H2 build 26200.9168. A read-only PnP check found one present WH-1000XM5 Audio Sink service with hardware ID `BTHENUM\{0000110b-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&0df0`; its current service is `BthA2dp`. This identifies an INF binding candidate, but does not establish compatibility with this driver or authorize replacement of the inbox profile.
 
 ## Production roadmap
 
@@ -12,21 +16,23 @@ Phase checklists: [`PHASE0.md`](PHASE0.md) … [`PHASE5.md`](PHASE5.md).
 
 **Hardware gate:** Phase 0–1 exit still requires the G16 lab. Software for Phases 2–5 (protocol responder, pump, reconnect, adaptive bitrate, packaging docs/CI) is implemented and Linux-tested.
 
-Phase 0 on the G16 (elevated where noted):
+Normal-security preparation on the G16:
 
 ```powershell
 .\tools\build.ps1 -IncludeDriver
+.\tools\bridge-readiness.ps1
 .\tools\hardware-report.ps1 | Out-File hw.json -Encoding utf8
 .\tools\resolve-binding.ps1 -ReportPath hw.json
-.\tools\generate-inf.ps1 -HardwareId '<RecommendedHardwareId>'
-.\tools\package-test.ps1
-# elevated:
-.\tools\sign-test.ps1 -PackageDir package\test
-.\tools\install-test.ps1 -PackageDir package\test
-.\tools\smoke-info.ps1 -Address AA:BB:CC:DD:EE:FF
 ```
 
-Phase 1 file smoke (after Phase 0):
+Build and inventory do not enable LDAC. The dedicated-adapter trial is in
+[`docs/bridge-trial.md`](docs/bridge-trial.md). For the built-in radio, confirm
+the exact XM5 Audio Sink service binding, complete driver verification, and
+obtain Microsoft signing before using the read-only default of
+`tools/install-signed.ps1`. The legacy test-signing lab sequence is documented
+in [`PHASE0.md`](PHASE0.md) but does not meet the normal-security goal.
+
+Phase 1 file smoke (after a signed KMDF package is installed and its binding verified):
 
 ```powershell
 python tools\gen_pcm.py --seconds 2 --out short.s16le
@@ -37,7 +43,7 @@ build\Debug\xm5_stream.exe --address AA:BB:CC:DD:EE:FF --file short.s16le sq --a
 
 | Component | Implementation | Verification |
 |---|---|---|
-| LDAC encoder | Sony encoder, 48 kHz / 16-bit / stereo, HQ/SQ/MQ, partial blocks and drain | Compiled and integration-tested on Linux |
+| LDAC encoder | Live client: 48 kHz / 16-bit / stereo, HQ/SQ/MQ. Offline diagnostic: 44.1/48/88.2/96 kHz and signed 16/24/32-bit PCM | Offline matrix tested; live XM5 playback unverified |
 | AVDTP source | Discover→Start plus peer Suspend/Close/Abort/Discover/GetCaps responder and `pump` | Fake-peer negotiation, peer-command, and failure tests |
 | Adaptive / reconnect | Duration-weighted EQMID congestion backoff; complete-session retry | Unit tests; Windows flags `--adaptive` `--reconnect`; live recovery unverified |
 | WAV input | 48 kHz stereo PCM WAV demux | Unit test + `--wav` |
@@ -107,7 +113,7 @@ PCM input must be raw 48 kHz, stereo, signed 16-bit little-endian audio. WAV, MP
 
 ## Remaining work
 
-Read `KNOWN_GAPS.md` before treating this as a complete driver. The next concrete gate is a Windows build. After that: validate binding, L2CAP opening, real XM5 negotiation, and PCM-file playback. A dedicated output endpoint, complete peer-initiated signaling, reconnection, and production driver lifecycle/signing work remain.
+Read `KNOWN_GAPS.md` before treating this as a complete driver. The next kernel gate is a Windows build of the current sources, then signed-package and L2CAP validation, real XM5 negotiation, and PCM-file playback. A dedicated output endpoint and production driver lifecycle work remain.
 
 ## Source and references
 

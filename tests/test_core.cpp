@@ -63,6 +63,13 @@ static Bytes peer_cmd(uint8_t label,uint8_t signal,const Bytes& body={}){
 
 int main(){try{
     require(supports_ldac_48_stereo(ldac_configuration()));
+    auto advertised=ldac_configuration();
+    advertised[advertised.size()-2]=0x3c; // 44.1/48/88.2/96 kHz from AOSP LDAC flags.
+    auto decoded=ldac_capabilities(advertised);
+    require(decoded && decoded->sample_rates==0x3c && decoded->channel_modes==1);
+    require(supports_ldac_48_stereo(advertised));
+    advertised[advertised.size()-2]=0x2c;
+    require(!supports_ldac_48_stereo(advertised));
     auto caps=ldac_configuration();caps[caps.size()-2]=0x20;require(!supports_ldac_48_stereo(caps));
     caps=ldac_configuration();caps.back()=4;require(!supports_ldac_48_stereo(caps));
     for(size_t n=1;n<14;++n){auto p=ldac_configuration();p.resize(n);bool supported=false;try{supported=supports_ldac_48_stereo(p);}catch(const Error&){}require(!supported); }

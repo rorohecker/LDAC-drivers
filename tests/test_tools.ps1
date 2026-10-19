@@ -14,6 +14,10 @@ foreach ($file in Get-ChildItem (Join-Path $root 'tools') -Filter '*.ps1') {
 $temp = Join-Path $root ('build\script-tests-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 try {
+    $labBlocked = $false
+    try { & (Join-Path $root 'tools\install-test.ps1') -PackageDir $temp | Out-Null }
+    catch { $labBlocked = $_.Exception.Message -like '*explicitly opted-in lab*' }
+    Assert $labBlocked 'Test installer did not reject a call without lab opt-in'
     $inf = Join-Path $temp 'test.inf'
     $valid = 'BTHENUM\{0000110b-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&0df0'
     & (Join-Path $root 'tools\generate-inf.ps1') -HardwareId $valid -OutputPath $inf | Out-Null

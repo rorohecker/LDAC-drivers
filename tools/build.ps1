@@ -106,4 +106,4 @@ if (-not [string]::IsNullOrWhiteSpace($HardwareId)) {
 }
 
 Write-Output 'Build checks completed. This script does not install or bind a driver.'
-Write-Output 'Next: hardware-report.ps1 -> resolve-binding.ps1 -> generate-inf.ps1 -> package-test.ps1 -> sign-test.ps1 -> install-test.ps1'
+Write-Output 'For normal-security Windows development, read docs/windows-ldac-paths.md. The test-install helper requires explicit lab opt-in and changes trust/boot settings.'

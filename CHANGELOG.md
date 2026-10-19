@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Version numbers follow 
 
 ## Unreleased
 
+### Windows LDAC path development
+
+- Add a read-only dedicated USB adapter and bridge readiness inventory plus an XM5
+  LDAC playback, reconnect, and adapter-restoration trial plan.
+- Add a normal-security signed-driver preflight that checks the confirmed Audio Sink
+  binding, current boot security, catalog membership, kernel policy, and Microsoft
+  catalog publisher before any explicitly requested installation.
+- Require explicit lab opt-in for the legacy test-signing installer; remove the
+  PowerShell execution-policy override from CTest.
+- Extend the offline diagnostic encoder and tests to 44.1/48/88.2/96 kHz and
+  signed 16/24/32-bit stereo PCM. Live streaming remains 48 kHz/16-bit.
+- Decode LDAC sample-rate and channel-mode capability flags for accurate future
+  headset negotiation; continue selecting only the proven 48 kHz stereo mode.
+- Audit the new paths: require an exact device instance and one INF manufacturer/model
+  binding, reject additional code-integrity bypass boot options, improve encoder
+  help and sample-rate parsing, and check depth/rate behavior in the offline suite.
+
 ### Audit fixes and usability
 
 - Correct receive-timeout typing, local SEID validation, GetConfiguration payloads,
