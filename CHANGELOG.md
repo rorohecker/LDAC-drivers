@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Version numbers follow 
 
 ## Unreleased
 
+## 0.1.0-dev.3 - 2026-10-19
+
 ### Free Linux trial
 
 - Add an XM5 LDAC profile selector for a connected Linux Bluetooth headset using

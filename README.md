@@ -8,7 +8,8 @@ For a no-cost Linux trial with the built-in Bluetooth radio, use
 [`linux/xm5_ldac.py`](linux/xm5_ldac.py) with the distribution's BlueZ,
 PipeWire, WirePlumber, and LDAC codec. Follow the [Linux trial guide](docs/linux-ldac.md).
 This route uses Linux's audio stack and does not install this project's Windows
-driver. Hardware playback on the burner laptop remains untested.
+driver. The [`v0.1.0-dev.3` prerelease](https://github.com/rorohecker/LDAC-drivers/releases/tag/v0.1.0-dev.3)
+has a small Linux test ZIP. Hardware playback on the burner laptop remains untested.
 
 For a route that keeps normal Windows security settings, read the [Windows LDAC architecture review](docs/windows-ldac-paths.md) before using the Phase 0 commands below. The existing `install-test.ps1` is a legacy development helper that enables `TESTSIGNING` and imports a self-signed root certificate; it is not part of that route.
 
