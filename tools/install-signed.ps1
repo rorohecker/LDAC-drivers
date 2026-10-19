@@ -70,6 +70,20 @@ $properties = Get-PnpDeviceProperty -InstanceId $device.InstanceId -ErrorAction 
 $deviceIds = @(($properties | Where-Object KeyName -eq 'DEVPKEY_Device_HardwareIds').Data)
 if ($hardwareId -notin $deviceIds) { throw 'INF Audio Sink hardware ID does not match the confirmed device instance.' }
 $currentService = ($properties | Where-Object KeyName -eq 'DEVPKEY_Device_Service').Data
+if ($currentService -notin @('BthA2dp', 'xm5ldac')) {
+    throw "Unexpected current service '$currentService' on the confirmed Audio Sink. Review its binding before installation."
+}
+# PnPUtil /install targets every matching present device, not just the instance
+# supplied above. Refuse the package if it could change another Audio Sink.
+$matchingDevices = @(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object {
+    $_.InstanceId -like 'BTHENUM\*'
+} | Where-Object {
+    $ids = @((Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_HardwareIds' -ErrorAction Stop).Data)
+    $hardwareId -in $ids
+})
+if ($matchingDevices.Count -ne 1 -or $matchingDevices[0].InstanceId -ne $ConfirmedInstanceId) {
+    throw 'The INF hardware ID matches another present device, or the confirmed instance was not unique. PnPUtil /install would affect all matches.'
+}
 
 Assert-IsAdministrator
 Assert-NormalBootSecurity
@@ -107,4 +121,8 @@ if (-not $Install) {
 
 & pnputil.exe /add-driver $inf /install
 if ($LASTEXITCODE -ne 0) { throw "PnPUtil installation failed with exit code $LASTEXITCODE" }
-Write-Output 'Installation requested. Verify the exact XM5 service binding and run the IOCTL smoke check.'
+$installedService = (Get-PnpDeviceProperty -InstanceId $ConfirmedInstanceId -KeyName 'DEVPKEY_Device_Service' -ErrorAction Stop).Data
+if ($installedService -ne 'xm5ldac') {
+    throw "Package was staged, but the confirmed Audio Sink is still bound to '$installedService'. PnPUtil does not force a lower-ranked driver. No successful installation is claimed. Review Device Manager and the package rank before any manual binding change."
+}
+Write-Output 'The confirmed XM5 Audio Sink is bound to xm5ldac. Run the IOCTL smoke check before attempting playback.'

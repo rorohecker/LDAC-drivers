@@ -2,6 +2,24 @@
 
 This review compares the [LDAC optimization guide](https://github.com/legendcodermartino1245/ldac-optimization-guide), [A2DP Windows Bridge](https://github.com/SeiyaFunaokaJP/A2DP-Windows-Bridge), the current XM5 project, and Microsoft's published driver requirements. It is an architecture review, not evidence that the local driver plays audio on an XM5. No driver, certificate, boot option, or Bluetooth adapter was changed during this review.
 
+## Built-in G16 radio check (2026-10-19)
+
+This laptop exposes Intel Wi-Fi 7 BE201 Bluetooth (`USB\VID_8087&PID_0037`),
+currently using the Windows `BTHUSB` radio service. Its WH-1000XM5 Audio Sink
+still uses `BthA2dp`. No separate USB Bluetooth dongle is present. The bridge's
+current [adapter table](https://seiyafunaokajp.github.io/A2DP-Windows-Bridge/setup#recommended-adapters)
+lists older Intel 8265/9260/AX200/AX201 as experimental and says AX210 and
+newer are unsupported. Thus its WinUSB route has no supported built-in-radio
+path for this BE201, and reassigning the only Bluetooth radio would take it
+away from the Windows Bluetooth stack.
+
+The repository's KMDF profile driver is the experimental built-in-radio path:
+it targets the XM5 Audio Sink service rather than the Intel radio. It compiles,
+but live load, Bluetooth negotiation, and audible output have not been shown.
+The current client has file/WAV/loopback input but no selectable Windows render
+endpoint. The profile conflict, cancellation and power safety, Microsoft signing,
+and hardware tests in `RELEASE.md` still gate an installable release.
+
 ## What the two repositories contribute
 
 | Source | Useful for this project | Boundary |

@@ -2,7 +2,7 @@
 
 ## Windows build and kernel lifecycle
 
-The WDK project, driver source, and Windows client are uncompiled in this environment. No `.sys`, `.cat`, signed package, or verified installable INF is supplied. Hardware binding is unresolved. WDK compile, static analysis, Driver Verifier, and a kernel-debuggable test setup must precede claims of driver stability.
+The Windows client and KMDF source compile locally, and the offline tests pass. The identified XM5 Audio Sink is still bound to the inbox `BthA2dp` service. Local `.sys` builds and test-signed packages are development artifacts; no Microsoft-signed, verified installable package is supplied. A compiled driver and valid INF/catalog do not establish that it loads or plays audio. Live binding, Driver Verifier, and a kernel-debuggable test setup must precede claims of driver stability.
 
 The transport currently uses serialized synchronous BRB requests with timeouts. Upper-level cancellation is not forwarded immediately; it waits for the bounded lower request. Close failures retain the channel handle for a subsequent cleanup attempt. Release/removal while a close fails, callback lifetime/rundown, cancellation races, and power-transition behavior need Windows validation and likely a fully asynchronous request design. These are outstanding engineering issues, not tested guarantees. No automatic reconnect is implemented.
 
