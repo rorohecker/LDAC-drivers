@@ -47,8 +47,9 @@ with tempfile.TemporaryDirectory() as temp:
             width=bits//8
             value=(1 << (bits-4)) - 1
             frame=value.to_bytes(width,"little",signed=True)*2
+            negative_frame=(-value).to_bytes(width,"little",signed=True)*2
             matrix_input=root/f"matrix-{rate}-{bits}.pcm"
-            matrix_input.write_bytes(frame*2048)
+            matrix_input.write_bytes(frame*1024+negative_frame*1024)
             matrix_output=root/f"matrix-{rate}-{bits}.ldacdiag"
             run(matrix_input,matrix_output,"sq",options=("--rate",str(rate),"--format",f"s{bits}"))
             assert records(matrix_output)==(17 if rate<=48000 else 9),(rate,bits)

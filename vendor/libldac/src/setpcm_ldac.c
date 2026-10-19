@@ -44,21 +44,25 @@ SCALAR *p_out,
 int nsmpl)
 {
     int i, val;
-    char *p_c;
+    unsigned int bits;
+    unsigned char *p_c;
     SCALAR scale = _scalar(1.0) / _scalar(65536.0);
 
-    p_c = (char *)p_in;
+    p_c = (unsigned char *)p_in;
     for (i = 0; i < nsmpl; i++) {
 #ifdef LDAC_HOST_ENDIAN_LITTLE
-        val  = 0x000000ff & (*p_c++);
-        val |= 0x0000ff00 & (*p_c++ << 8);
-        val |= 0xffff0000 & (*p_c++ << 16);
+        bits  = (unsigned int)*p_c++;
+        bits |= (unsigned int)*p_c++ << 8;
+        bits |= (unsigned int)*p_c++ << 16;
 #else /* LDAC_HOST_ENDIAN_LITTLE */
-        val  = 0xffff0000 & (*p_c++ << 16);
-        val |= 0x0000ff00 & (*p_c++ << 8);
-        val |= 0x000000ff & (*p_c++);
+        bits  = (unsigned int)*p_c++ << 16;
+        bits |= (unsigned int)*p_c++ << 8;
+        bits |= (unsigned int)*p_c++;
 #endif /* LDAC_HOST_ENDIAN_LITTLE */
-        *p_out++ = scale * (SCALAR)(val << 8); /* Sign Extension */
+        /* Local fix: sign-extend before scaling; signed left shifts are undefined. */
+        val = (int)bits;
+        if (bits & 0x800000u) val -= 0x1000000;
+        *p_out++ = scale * (SCALAR)(val * 256);
     }
 
     return;

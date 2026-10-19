@@ -38,7 +38,8 @@ All notable changes to this project are documented here. Version numbers follow 
   harden Audio Sink binding and package paths, and fix localized uninstall selection.
 - Add Windows user-mode, protocol/WAV/PowerShell regressions, timer diagnostics,
   and an optional user-mode AddressSanitizer build (`-DXM5_ASAN=ON`).
-- Document all four adaptations to the pinned Sony encoder sources.
+- Document all five adaptations to the pinned Sony encoder sources, including
+  the packed 24-bit PCM signed-shift fix found by Linux sanitizer CI.
 
 Hardware smoke/audio, asynchronous BRB cancellation and Verifier, a virtual
 playback endpoint, ETW/WPP, and Microsoft signing/certification remain incomplete.

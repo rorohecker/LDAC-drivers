@@ -22,7 +22,8 @@ are excluded from Git. References to `artifacts/` are local evidence paths.
 
 Additional changes: Windows 11 minimum INF target, SDK/WDK selection, safer binding
 and package helpers, `--help`, packet/timing counters, Windows tests, ASan option, and
-complete documentation of the four Sony source adaptations. No encoder algorithm
+complete documentation of the Sony source adaptations (five after the later
+packed 24-bit PCM sanitizer fix). No encoder algorithm
 was replaced. File reconnect restarts at the beginning; live reconnect reopens the
 current default playback endpoint.
 
