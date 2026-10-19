@@ -1,5 +1,16 @@
 # Verification performed in this environment
 
+## 2026-10-19 Linux profile tool preparation
+
+- `python -m unittest discover -s tests -p test_linux_ldac.py -v` passed four
+  checks: exact headset selection, unavailable LDAC rejection, successful
+  profile/default-output switching, and restoration after a reported wrong codec.
+- Windows Release CMake build passed all five available CTest suites, including
+  the new Linux tool tests. `python -m py_compile linux/xm5_ldac.py`,
+  `validate-phase0.py`, and `git diff --check` passed.
+- Linux Bluetooth hardware, the burner laptop's radio, PipeWire's live card
+  JSON, LDAC negotiation, and audible playback have not yet been tested.
+
 ## 2026-10-19 release readiness check
 
 - `tools/build.ps1 -IncludeDriver -Configuration Release` completed with zero

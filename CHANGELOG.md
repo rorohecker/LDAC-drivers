@@ -4,6 +4,13 @@ All notable changes to this project are documented here. Version numbers follow 
 
 ## Unreleased
 
+### Free Linux trial
+
+- Add an XM5 LDAC profile selector for a connected Linux Bluetooth headset using
+  BlueZ, PipeWire and WirePlumber. It checks the exact headset address, available
+  profile, output sink and exposed codec, and restores the previous profile if
+  activation fails. Live playback on a Linux laptop remains unverified.
+
 ## 0.1.0-dev.2 - 2026-10-19
 
 ### Setup and release checks
