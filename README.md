@@ -2,6 +2,8 @@
 
 This is experimental development source, not a working driver release. The Windows client and KMDF driver build on the G16 with MSVC and the WDK. Offline codec/protocol tests pass; driver loading and audible XM5 playback remain unverified. Installing the source archive does not enable LDAC. See [the audit and repair status](DRIVER_AUDIT.md).
 
+The `v0.1.0-dev.2` prerelease provides a Windows x64 development-tools ZIP with the offline encoder, experimental client, and optional USB setup helper. It contains no installable kernel driver and does not enable LDAC on the built-in Intel radio. See [release notes](https://github.com/rorohecker/LDAC-drivers/releases/tag/v0.1.0-dev.2).
+
 For a route that keeps normal Windows security settings, read the [Windows LDAC architecture review](docs/windows-ldac-paths.md) before using the Phase 0 commands below. The existing `install-test.ps1` is a legacy development helper that enables `TESTSIGNING` and imports a self-signed root certificate; it is not part of that route.
 
 Both development tracks are active: the [dedicated USB adapter trial](docs/bridge-trial.md) provides the first practical XM5 playback gate, while the existing KMDF source targets a future Microsoft-signed built-in-radio path. `tools/bridge-readiness.ps1` only inventories hardware and boot state. `tools/install-signed.ps1` validates a Microsoft-signed package without installing it unless explicitly passed `-Install`. Its preflight requires an elevated shell to verify boot security; no such signed package is currently supplied.

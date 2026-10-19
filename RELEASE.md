@@ -5,6 +5,10 @@
 3. **Beta** — limited installs; Phase 2–3 soak; still test-signed or attestation preview.
 4. **Production** — production-signed package; SUPPORT_MATRIX row marked Supported; CHANGELOG section released; tag `vMAJOR.MINOR.PATCH`.
 
+Development prereleases may contain source and user-mode diagnostic tools when
+their notes explicitly state that they do not install or enable LDAC. An
+experimental client binary alone does not make a working driver package.
+
 Rollback: `tools/uninstall-test.ps1` (or production uninstaller) then reboot; restore inbox A2DP binding via Device Manager scan.
 
 ## Installable built-in-radio release gate (checked 2026-10-19)

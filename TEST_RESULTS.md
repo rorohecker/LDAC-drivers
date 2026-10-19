@@ -7,10 +7,16 @@
   protocol/encoder, offline encoder, client help, and Windows pacer.
 - A separate Release KMDF rebuild with WDK minimum-rule code analysis completed
   with no warnings or errors. This is static analysis, not Driver Verifier.
-- `tests/test_tools.ps1` passed 24 PowerShell helper checks; `validate-phase0.py`
+- The optional MSVC AddressSanitizer build passed all four CTest suites after
+  adding the installed Visual Studio ASan runtime directory to the test
+  process's `PATH`. Its initial `0xc0000135` failures were missing-runtime
+  launch failures, not failing test assertions or sanitizer findings.
+- `tests/test_tools.ps1` passed 25 PowerShell helper checks; `validate-phase0.py`
   passed its artifact guards. The guided USB setup correctly reports no separate
   USB Bluetooth adapter on this machine and rejects selecting the built-in
   Intel radio or invoking installation without a selected external adapter.
+- The `v0.1.0-dev.2` ZIP was checked for exact expected files, byte identity of
+  both Release executables, SHA-256, and absence of any kernel package files.
 - The present WH-1000XM5 Audio Sink is still bound to `BthA2dp`. The built-in
   radio is Intel Wi-Fi 7 BE201 Bluetooth; no external USB Bluetooth adapter is
   present. No driver install, reboot, boot-security change, live IOCTL smoke,

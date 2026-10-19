@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Version numbers follow 
 
 ## Unreleased
 
+## 0.1.0-dev.2 - 2026-10-19
+
 ### Setup and release checks
 
 - Add a guided dedicated-USB setup helper that requires a physically confirmed
@@ -12,6 +14,13 @@ All notable changes to this project are documented here. Version numbers follow 
   devices and report a staged-but-unbound package as a failed installation.
 - Recheck the built-in Intel BE201 route and record the remaining live driver,
   endpoint, signing, and hardware playback gates before an installable release.
+
+### Development downloads
+
+- Package the verified Windows x64 user-mode tools and optional USB setup helper
+  as a prerelease. The archive contains no kernel driver or driver installer.
+
+## 0.1.0-dev.1 - 2026-10-18
 
 ### Windows LDAC path development
 
