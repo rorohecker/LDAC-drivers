@@ -4,6 +4,12 @@ This is experimental development source, not a working driver release. The Windo
 
 The `v0.1.0-dev.2` prerelease provides a Windows x64 development-tools ZIP with the offline encoder, experimental client, and optional USB setup helper. It contains no installable kernel driver and does not enable LDAC on the built-in Intel radio. See [release notes](https://github.com/rorohecker/LDAC-drivers/releases/tag/v0.1.0-dev.2).
 
+For a no-cost Linux trial with the built-in Bluetooth radio, use
+[`linux/xm5_ldac.py`](linux/xm5_ldac.py) with the distribution's BlueZ,
+PipeWire, WirePlumber, and LDAC codec. Follow the [Linux trial guide](docs/linux-ldac.md).
+This route uses Linux's audio stack and does not install this project's Windows
+driver. Hardware playback on the burner laptop remains untested.
+
 For a route that keeps normal Windows security settings, read the [Windows LDAC architecture review](docs/windows-ldac-paths.md) before using the Phase 0 commands below. The existing `install-test.ps1` is a legacy development helper that enables `TESTSIGNING` and imports a self-signed root certificate; it is not part of that route.
 
 Both development tracks are active: the [dedicated USB adapter trial](docs/bridge-trial.md) provides the first practical XM5 playback gate, while the existing KMDF source targets a future Microsoft-signed built-in-radio path. `tools/bridge-readiness.ps1` only inventories hardware and boot state. `tools/install-signed.ps1` validates a Microsoft-signed package without installing it unless explicitly passed `-Install`. Its preflight requires an elevated shell to verify boot security; no such signed package is currently supplied.
